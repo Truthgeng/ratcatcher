@@ -1,0 +1,76 @@
+name: ratcatcher
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+description: >-
+  Scam bouncer for Telegram groups. Watches every group message your Hermes bot can see and removes
+  wallet drainers, fake airdrops, fake support and DM bait, doubling scams, phishing look-alike links
+  and admin impersonators before Hermes or your members read them. Mutes repeat offenders, bans after
+  strikes, posts a short warning, and sends admins a report with Release and Ban buttons. Hermes can
+  check a pasted message, report what was caught, edit the blocklist and release false alarms.
+author: Truthgeng
+license: MIT
+homepage: https://github.com/Truthgeng/ratcatcher
+tags: [telegram, moderation, security, crypto, community]
+provides_tools:
+  - ratcatcher_check
+  - ratcatcher_report
+  - ratcatcher_blocklist
+  - ratcatcher_release
+config_schema:
+  mode:
+    type: str
+    choices: [enforce, watch]
+    default: enforce
+    label: Mode
+    description: "enforce removes and mutes; watch only logs and reports, so you can test first"
+  protected_chats:
+    type: list
+    default: []
+    label: Protected chats
+    description: "Telegram group ids to guard. Empty guards every group the bot is in"
+  block_threshold:
+    type: float
+    default: 0.8
+    label: Remove at score
+  review_threshold:
+    type: float
+    default: 0.45
+    label: Second look at score
+    description: "Between this and the remove score, the AI takes a second look (or admins get a flag)"
+  ai_review:
+    type: bool
+    default: true
+    label: AI second look
+    description: "Uses your current Hermes model for borderline messages only"
+  mute_minutes:
+    type: int
+    default: 60
+    label: Mute minutes
+  ban_after:
+    type: int
+    default: 3
+    label: Ban after strikes
+    description: "0 never bans"
+  warn_in_group:
+    type: bool
+    default: true
+    label: Post a warning in the group
+  warning_ttl_seconds:
+    type: int
+    default: 60
+    label: Delete the warning after (seconds)
+  report_chat_id:
+    type: str
+    default: ""
+    label: Admin report chat id
+    description: "Your Telegram user id or an admin group id. Start a chat with the bot first"
+  allowed_domains:
+    type: list
+    default: []
+    label: Trusted domains
+    description: "Your project's real domains, never flagged"
+  new_member_hours:
+    type: float
+    default: 24
+    label: New member window (hours)
