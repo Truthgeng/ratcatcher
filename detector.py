@@ -20,6 +20,11 @@ from urllib.parse import urlparse
 
 _ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff\u00ad\u180e"), None)
 
+# Phones and Macs type curly quotes and fancy dashes; fold them to plain ones.
+_PUNCT = str.maketrans({"\u2018": "'", "\u2019": "'", "\u02bc": "'", "\u2032": "'", "`": "'", "\u00b4": "'",
+                        "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-", "\u2212": "-",
+                        "\u00a0": " ", "\u2009": " ", "\u202f": " "})
+
 # Cyrillic / Greek letters that render like Latin ones.
 _HOMOGLYPHS = str.maketrans({
     "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x", "і": "i", "ј": "j",
@@ -33,7 +38,7 @@ _LEET = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t
 
 def normalise(text: str) -> str:
     """Lowercase, strip invisible characters and fold look-alike letters."""
-    text = unicodedata.normalize("NFKC", text or "").translate(_ZERO_WIDTH)
+    text = unicodedata.normalize("NFKC", text or "").translate(_ZERO_WIDTH).translate(_PUNCT)
     return text.lower().translate(_HOMOGLYPHS)
 
 

@@ -69,6 +69,7 @@ SCAMS = [
     "Type your 12 word recovery phrase in the form to restore access",
     "Official giveaway is open, first 100 users get 500 USDT, claim here bit.ly/xyz123",
     "Having issues with your wallet? DM me, I'm from support",
+    "Having issues with your wallet? DM me, I’m from support",
     "Hello, I am from the support team. Anyone with pending withdrawals inbox me",
     "Is your transaction stuck? Message me, I can help you fix it",
     "We are the official team, contact us for your missing tokens",
@@ -444,3 +445,17 @@ def test_only_admins_can_press_buttons():
     mod, bot, inc, on_button = _button_setup("kicked")
     asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}", presser=777), SimpleNamespace(bot=bot)))
     bot.unban_chat_member.assert_not_awaited()
+
+
+def test_basic_group_does_not_try_to_mute():
+    mod = _mod(warning_ttl_seconds=0)
+    bot, on_message = _wire(mod)
+    data = {"update_id": 11, "message": {
+        "message_id": 78, "date": 1730000000, "text": SCAMS[1],
+        "chat": {"id": -555, "type": "group", "title": "Basic Group"},
+        "from": {"id": 9, "is_bot": False, "first_name": "Mike", "username": "mike22"}}}
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(Update.de_json(data, bot), SimpleNamespace(bot=bot)))
+    bot.delete_message.assert_awaited()
+    bot.restrict_chat_member.assert_not_awaited()
+    assert "mute_needs_supergroup" in mod.store.recent(1)[0]["action"]

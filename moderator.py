@@ -210,7 +210,9 @@ class Moderator:
                     if await self._ban(bot, chat.id, user.id):
                         actions.append("banned")
                 elif s.mute_minutes > 0:
-                    if await self._mute(bot, chat.id, user.id, s.mute_minutes):
+                    if getattr(chat, "type", "") == "group":
+                        actions.append("mute_needs_supergroup")
+                    elif await self._mute(bot, chat.id, user.id, s.mute_minutes):
                         actions.append(f"muted_{s.mute_minutes}m")
         action = "+".join(actions) or "none"
         text = (msg.text or msg.caption or "") if msg else ""
@@ -246,6 +248,8 @@ class Moderator:
                     logger.info("ratcatcher: delete failed in %s: %s", chat.id, exc)
             if strong and s.ban_clones:
                 actions.append("banned" if await self._ban(bot, chat.id, user.id) else "ban_failed")
+            elif getattr(chat, "type", "") == "group":
+                actions.append("mute_needs_supergroup")
             else:
                 ok = await self._mute(bot, chat.id, user.id, max(s.mute_minutes, 24 * 60))
                 actions.append("muted_24h" if ok else "mute_failed")
@@ -365,10 +369,13 @@ class Moderator:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         reasons = "\n".join(f"• {html.escape(r)}" for r in v.reasons[:4])
         snippet = html.escape((text or "")[:300])
+        tip = ("\n⚠️ This is a basic group, and Telegram only allows muting and unbanning in supergroups. "
+               "Upgrade it: Group, Edit, Chat history for new members, Visible.\n"
+               if getattr(chat, "type", "") == "group" else "")
         body = (f"🐀 <b>Caught #{incident}</b> in {html.escape(getattr(chat, 'title', '') or str(chat.id))}\n"
                 f"From: {html.escape(name)}\nType: {html.escape(v.label)} (score {v.score:.2f})\n"
                 f"Action: {html.escape(action.replace('+', ', '))}\n{reasons}\n"
-                + (f"{html.escape(ai_note)}\n" if ai_note else "") + f"\n<i>{snippet}</i>")
+                + (f"{html.escape(ai_note)}\n" if ai_note else "") + tip + f"\n<i>{snippet}</i>")
         keyboard = InlineKeyboardMarkup([[
             InlineKeyboardButton("Release", callback_data=f"{CALLBACK_PREFIX}:release:{incident}"),
             InlineKeyboardButton("Ban", callback_data=f"{CALLBACK_PREFIX}:ban:{incident}"),
