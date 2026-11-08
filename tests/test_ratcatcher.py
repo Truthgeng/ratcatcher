@@ -392,3 +392,51 @@ def test_ban_clones_off_only_mutes():
         asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
     bot.ban_chat_member.assert_not_awaited()
     bot.restrict_chat_member.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Release and Ban buttons on admin reports
+# ---------------------------------------------------------------------------
+
+def _button_update(bot, data, presser=1):
+    return Update.de_json({"update_id": 9, "callback_query": {
+        "id": "cb1", "chat_instance": "ci", "data": data,
+        "from": {"id": presser, "is_bot": False, "first_name": "Truth"},
+        "message": {"message_id": 500, "date": 1730000000, "text": "Caught #1",
+                    "chat": {"id": 1, "type": "private", "first_name": "Truth"}}}}, bot)
+
+
+def _button_setup(status):
+    mod = _mod(warning_ttl_seconds=0)
+    bot = _clone_bot()
+    bot.get_chat_member = AsyncMock(return_value=SimpleNamespace(status=status))
+    bot.unban_chat_member = AsyncMock(return_value=True)
+    bot.answer_callback_query = AsyncMock(return_value=True)
+    bot.edit_message_text = AsyncMock(return_value=True)
+    inc = mod.store.add_incident(chat_id=-1001, chat_title="G", message_id=1, user_id=66, user_name="Clone",
+                                 text="hi", score=1.0, category="impersonation", reasons=["r"], action="banned")
+    _, _, on_button = _wire_with(mod, bot)
+    return mod, bot, inc, on_button
+
+
+def test_release_button_unbans_a_banned_account():
+    mod, bot, inc, on_button = _button_setup("kicked")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}"), SimpleNamespace(bot=bot)))
+    bot.unban_chat_member.assert_awaited_once()
+    bot.restrict_chat_member.assert_not_awaited()
+    assert mod.store.get_incident(inc)["released"] == 1
+
+
+def test_release_button_unmutes_a_muted_account():
+    mod, bot, inc, on_button = _button_setup("restricted")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}"), SimpleNamespace(bot=bot)))
+    bot.restrict_chat_member.assert_awaited_once()
+    assert mod.store.get_incident(inc)["released"] == 1
+
+
+def test_only_admins_can_press_buttons():
+    mod, bot, inc, on_button = _button_setup("kicked")
+    asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}", presser=777), SimpleNamespace(bot=bot)))
+    bot.unban_chat_member.assert_not_awaited()

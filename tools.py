@@ -154,12 +154,15 @@ def build(mod: Moderator) -> dict[str, Any]:
         if running is not None and running is mod.loop:
             return json.dumps({"error": "Use the Release button on the report instead."})
         try:
-            ok = mod.run_on_bot_loop(lambda bot: mod.release(bot, inc["chat_id"], inc["user_id"]))
+            result = mod.run_on_bot_loop(lambda bot: mod.release(bot, inc["chat_id"], inc["user_id"]))
         except Exception as exc:
             return json.dumps({"error": str(exc)})
+        ok = result != "failed"
         if ok:
             mod.store.set_incident(inc["id"], released=1)
-        return json.dumps({"ok": bool(ok), "released": inc["user_name"], "group": inc["chat_title"]})
+        return json.dumps({"ok": ok, "result": result, "released": inc["user_name"], "group": inc["chat_title"],
+                           "note": "Banned accounts are unbanned and can rejoin with the group link."
+                           if result == "unbanned" else ""})
 
     return {"ratcatcher_check": (CHECK, check), "ratcatcher_report": (REPORT, report),
             "ratcatcher_blocklist": (BLOCKLIST, blocklist), "ratcatcher_release": (RELEASE, release)}

@@ -286,22 +286,43 @@ class Moderator:
             logger.info("ratcatcher: ban failed: %s", exc)
             return False
 
-    async def release(self, bot: Any, chat_id: Any, user_id: Any) -> bool:
+    async def release(self, bot: Any, chat_id: Any, user_id: Any) -> str:
+        """Undo a catch. Returns 'unbanned', 'unmuted', 'nothing_to_undo' or 'failed'.
+
+        A banned account is no longer in the group, so it is only unbanned; it can rejoin with the
+        group link. A muted account gets its chat rights back.
+        """
         from telegram import ChatPermissions
         self.store.clear_strikes(chat_id, user_id)
         try:
-            await bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
-        except Exception:
-            pass
+            member = await bot.get_chat_member(chat_id, user_id)
+            status = str(getattr(member, "status", "") or "")
+        except Exception as exc:
+            logger.info("ratcatcher: could not read member status: %s", exc)
+            status = ""
+        if status in ("kicked", "banned", "ChatMemberStatus.BANNED"):
+            try:
+                await bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
+                return "unbanned"
+            except Exception as exc:
+                logger.info("ratcatcher: unban failed: %s", exc)
+                return "failed"
+        if status in ("left", "ChatMemberStatus.LEFT"):
+            return "nothing_to_undo"
         try:
             await bot.restrict_chat_member(chat_id, user_id, ChatPermissions(
                 can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True,
                 can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True,
                 can_send_other_messages=True, can_add_web_page_previews=True))
-            return True
+            return "unmuted"
         except Exception as exc:
-            logger.info("ratcatcher: release failed: %s", exc)
-            return False
+            # Unknown status and restoring rights failed: try an unban as a last resort.
+            try:
+                await bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
+                return "unbanned"
+            except Exception:
+                logger.info("ratcatcher: release failed: %s", exc)
+                return "failed"
 
     async def _warn_group(self, bot: Any, chat_id: Any, name: str, v: Verdict) -> None:
         reason = v.reasons[0] if v.reasons else v.label
@@ -376,6 +397,20 @@ def _hidden_urls(msg: Any) -> list[str]:
     return urls
 
 
+async def _mark_report(q: Any, line: str, inc_id: str, buttons: list) -> None:
+    """Show on the report who did what, and swap the button for the opposite action."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    try:
+        base = q.message.text_html or html.escape(q.message.text or "")
+        base = base.split("\n\n<b>✅")[0].split("\n\n<b>⛔")[0]
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(t, callback_data=f"{CALLBACK_PREFIX}:{v}:{inc_id}")
+                                        for t, v in buttons]])
+        await q.edit_message_text(f"{base}\n\n<b>{line}</b>", parse_mode="HTML", reply_markup=markup,
+                                  disable_web_page_preview=True)
+    except Exception as exc:
+        logger.info("ratcatcher: could not update report: %s", exc)
+
+
 def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
     def ratcatcher_telegram(app: Any, adapter: Any) -> None:
         from telegram import Update
@@ -413,6 +448,10 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
                 return
             is_fwd = bool(getattr(msg, "forward_origin", None))
             verdict, decision, note = await mod.judge(text, sender, admins, hidden, is_fwd)
+            if is_admin and verdict.score == 0:
+                logger.info("ratcatcher: %s is a group admin, not checked", user.full_name)
+            logger.info("ratcatcher: message from %s in %s scored %.2f -> %s", user.full_name, chat.title or chat.id,
+                        verdict.score, decision)
             if decision == "clean":
                 return
             if decision == "flag":
@@ -459,16 +498,32 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
             if not any(a.user_id == q.from_user.id for a in admins):
                 await q.answer("Only group admins can do that", show_alert=True)
                 return
+            who = html.escape(q.from_user.full_name or q.from_user.username or "an admin")
             if verb == "release":
-                ok = await mod.release(context.bot, incident["chat_id"], incident["user_id"])
+                result = await mod.release(context.bot, incident["chat_id"], incident["user_id"])
+                ok = result != "failed"
                 if ok:
                     mod.store.set_incident(int(inc_id), released=1)
-                await q.answer("Released" if ok else "Could not release, check bot rights")
+                await q.answer({"unbanned": "Unbanned. They can rejoin with the group link.",
+                                "unmuted": "Unmuted, they can talk again.",
+                                "nothing_to_undo": "They are not restricted any more.",
+                                }.get(result, "Could not release, check the bot's admin rights"))
+                note = {"unbanned": "✅ Unbanned", "unmuted": "✅ Unmuted",
+                        "nothing_to_undo": "✅ Released"}.get(result)
+                buttons = [["Ban", "ban"]]
             elif verb == "ban":
                 ok = await mod._ban(context.bot, incident["chat_id"], incident["user_id"])
                 if ok:
-                    mod.store.set_incident(int(inc_id), action=(incident["action"] or "") + "+banned")
-                await q.answer("Banned" if ok else "Could not ban, check bot rights")
+                    mod.store.set_incident(int(inc_id), action=(incident["action"] or "") + "+banned",
+                                           released=0)
+                await q.answer("Banned" if ok else "Could not ban, check the bot's admin rights")
+                note = "⛔ Banned" if ok else None
+                buttons = [["Release", "release"]]
+            else:
+                await q.answer("Unknown action")
+                raise ApplicationHandlerStop
+            if note:
+                await _mark_report(q, f"{note} by {who}", inc_id, buttons)
             raise ApplicationHandlerStop
 
         groups = filters.ChatType.GROUPS
