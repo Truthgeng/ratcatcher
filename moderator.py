@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from .detector import Admin, Detector, Sender, Verdict
+from .detector import Admin, CloneMatch, Detector, Sender, Verdict
 from .store import Store
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ class Settings:
     mute_minutes: int = 60
     ban_after: int = 3
     ban_on_sight: bool = True        # ban at once for near-certain scams
+    ban_clones: bool = True          # ban accounts that clearly copy an admin or the owner
     warn_in_group: bool = True
     warning_ttl_seconds: int = 60
     report_chat_id: str = ""
@@ -222,25 +223,49 @@ class Moderator:
         await self._report(bot, incident, chat, name, v, action, text, ai_note)
         return incident
 
-    async def on_impostor_join(self, bot: Any, chat: Any, user: Any, v: Verdict) -> int:
-        """Someone joined wearing an admin's name. Mute before they can DM-bait anyone."""
+    async def handle_clone(self, bot: Any, chat: Any, msg: Any, user: Any, clone: CloneMatch) -> int:
+        """An account is dressed up as an admin or the owner.
+
+        strong: delete whatever it posted and ban it at once.
+        weak:   could be a real member with a similar name, so mute for a day and let admins decide.
+        """
         s = self.settings
         name = user.full_name or user.username or str(user.id)
+        text = (getattr(msg, "text", None) or getattr(msg, "caption", None) or "") if msg else "(joined the group)"
+        strong = clone.strength == "strong"
+        v = Verdict(1.0 if strong else 0.7, "impersonation", [clone.reason], certain=strong)
+        actions: list[str] = []
         if s.mode == "watch":
-            action = "watched"
+            actions.append("watched")
         else:
-            action = "muted_on_join" if await self._mute(bot, chat.id, user.id, max(s.mute_minutes, 24 * 60)) \
-                else "mute_failed"
+            if msg is not None and strong:
+                try:
+                    await bot.delete_message(chat.id, msg.message_id)
+                    actions.append("deleted")
+                except Exception as exc:
+                    logger.info("ratcatcher: delete failed in %s: %s", chat.id, exc)
+            if strong and s.ban_clones:
+                actions.append("banned" if await self._ban(bot, chat.id, user.id) else "ban_failed")
+            else:
+                ok = await self._mute(bot, chat.id, user.id, max(s.mute_minutes, 24 * 60))
+                actions.append("muted_24h" if ok else "mute_failed")
+        action = "+".join(actions)
         incident = self.store.add_incident(chat_id=chat.id, chat_title=getattr(chat, "title", "") or "",
-                                           message_id="", user_id=user.id, user_name=name,
-                                           text="(joined the group)", score=v.score, category=v.category,
-                                           reasons=v.reasons, action=action)
+                                           message_id=getattr(msg, "message_id", "") if msg else "",
+                                           user_id=user.id, user_name=name, text=text, score=v.score,
+                                           category=v.category, reasons=v.reasons, action=action)
         if s.mode == "enforce" and s.warn_in_group:
-            body = (f"🐀 <b>Ratcatcher</b> muted {html.escape(name)} on arrival: "
-                    f"{html.escape(v.reasons[0] if v.reasons else v.label)}.\n"
-                    "If they DM you claiming to be staff, it is a scam.")
+            real = clone.admin.full_name or ("@" + clone.admin.username)
+            handle = f" (@{html.escape(clone.admin.username)})" if clone.admin.username else ""
+            if "banned" in action:
+                body = (f"🐀 <b>Ratcatcher</b> banned {html.escape(name)}: fake account copying "
+                        f"{html.escape(real)}.\nThe real {html.escape(real)} is {html.escape(real)}{handle}. "
+                        "Admins never DM you first.")
+            else:
+                body = (f"🐀 <b>Ratcatcher</b> muted {html.escape(name)}: the name looks like "
+                        f"{html.escape(real)}{handle}. Admins will check. Do not reply to DMs from this account.")
             await self._send_temp(bot, chat.id, body)
-        await self._report(bot, incident, chat, name, v, action, "(joined the group)", "")
+        await self._report(bot, incident, chat, name, v, action, text, "")
         return incident
 
     async def _mute(self, bot: Any, chat_id: Any, user_id: Any, minutes: int) -> bool:
@@ -367,10 +392,6 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
                 return
             if user.id == context.bot.id or not mod.protects(chat.id):
                 return
-            text = msg.text or msg.caption or ""
-            hidden = _hidden_urls(msg)
-            if not text and not hidden:
-                return
             admins = await mod.admins(context.bot, chat.id)
             is_admin = any(a.user_id == user.id for a in admins) or getattr(msg, "sender_chat", None) is not None \
                 and getattr(msg.sender_chat, "id", None) == chat.id
@@ -378,6 +399,18 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
             sender = Sender(user_id=user.id, full_name=user.full_name or "", username=user.username or "",
                             is_admin=is_admin, prior_messages=seen,
                             joined_seconds_ago=(time.time() - joined_ts) if joined_ts else None)
+            # Admin clones are checked on every message, photos and stickers included, so an
+            # account that renames itself after joining is caught the next time it speaks.
+            clone = mod.detector().clone_check(sender, admins)
+            if clone:
+                await mod.handle_clone(context.bot, chat, msg, user, clone)
+                if mod.settings.mode == "enforce":
+                    raise ApplicationHandlerStop
+                return
+            text = msg.text or msg.caption or ""
+            hidden = _hidden_urls(msg)
+            if not text and not hidden:
+                return
             is_fwd = bool(getattr(msg, "forward_origin", None))
             verdict, decision, note = await mod.judge(text, sender, admins, hidden, is_fwd)
             if decision == "clean":
@@ -406,10 +439,10 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
                 if u.is_bot and u.id == context.bot.id:
                     continue
                 mod.store.member_joined(chat.id, u.id)
-                v = mod.detector()._check_impersonation(
+                clone = mod.detector().clone_check(
                     Sender(user_id=u.id, full_name=u.full_name or "", username=u.username or ""), admins)
-                if v and v[0][0] >= 0.7:
-                    await mod.on_impostor_join(context.bot, chat, u, Verdict(v[0][0], "impersonation", [v[0][2]]))
+                if clone:
+                    await mod.handle_clone(context.bot, chat, None, u, clone)
 
         async def on_button(update: "Update", context: Any) -> None:
             q = update.callback_query

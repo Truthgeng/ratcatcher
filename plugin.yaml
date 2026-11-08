@@ -1,5 +1,5 @@
 name: ratcatcher
-version: 0.2.0
+version: 0.3.0
 manifest_version: 2
 api_version: 1
 description: >-
@@ -57,6 +57,11 @@ config_schema:
     default: true
     label: Ban on sight
     description: "Ban at once for near-certain scams (seed phrase asks, doubling, recovery experts, blocklist)"
+  ban_clones:
+    type: bool
+    default: true
+    label: Ban admin clones
+    description: "Ban accounts that clearly copy an admin's or the owner's name. Close-but-unsure names are muted and reported"
   warn_in_group:
     type: bool
     default: true

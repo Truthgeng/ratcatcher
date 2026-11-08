@@ -110,7 +110,7 @@ def test_admins_are_never_touched():
 def test_admin_copycat_name():
     v = Detector().check("hello fam, check your DMs", Sender(77, "Truth", "heistruthx_"), ADMINS)
     assert v.category in ("impersonation", "fake_support")
-    assert any("copies the admin" in r for r in v.reasons)
+    assert any("admin Truth" in r for r in v.reasons) and v.certain
 
 
 def test_hidden_link_behind_text():
@@ -289,6 +289,105 @@ def test_ban_on_sight_off_only_mutes():
     mod = _mod(warn_in_group=False, ban_on_sight=False)
     bot, on_message = _wire(mod)
     upd = _update(bot, "Pls paste your 12 word phrase here so the system can restore your funds")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
+    bot.ban_chat_member.assert_not_awaited()
+    bot.restrict_chat_member.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Admin and owner clones
+# ---------------------------------------------------------------------------
+
+CLONE_ADMINS = [Admin(1, "Truth", "heistruthx"), Admin(2, "Ada Okeke", "ada_okeke"),
+                Admin(3, "Sign Nigeria Mod", "signng_mod")]
+
+
+@pytest.mark.parametrize("name,username,expected", [
+    ("Truth", "heistruthx_", "strong"),          # copied name and look-alike username
+    ("Truth | Admin", "truth_help", "strong"),   # name plus staff title
+    ("Truth Support", "randomguy", "strong"),
+    ("Τruth", "heistruthx", "strong"),           # Greek T
+    ("heistruthx", "bob22", "strong"),           # admin's username used as display name
+    ("Ada Okeke", "scammer777", "strong"),       # exact copy of a distinctive full name
+    ("Ada Okeke 🛡", "", "strong"),
+    ("Sign Nigeria", "signngofficial", "strong"),
+    ("Truth", "", "weak"),                       # short single name, could be a real member
+    ("Truth", "kelvin_22", "weak"),
+    ("Truthh", "xyz999", "weak"),
+    ("Truth Okafor", "truthokafor", None),       # real person who shares a first name
+    ("Ada", "ada_b", None),
+    ("Kay", "kay", None),
+])
+def test_clone_levels(name, username, expected):
+    c = Detector().clone_check(Sender(50, name, username), CLONE_ADMINS)
+    assert (c.strength if c else None) == expected, (name, username, c)
+
+
+def test_real_admin_is_never_a_clone():
+    assert Detector().clone_check(Sender(1, "Truth", "heistruthx", is_admin=True), CLONE_ADMINS) is None
+
+
+def _clone_bot():
+    bot = _fake_bot()
+    bot.get_chat_administrators = AsyncMock(return_value=[
+        SimpleNamespace(user=SimpleNamespace(id=1, full_name="Truth", username="heistruthx"))])
+    return bot
+
+
+def _wire_with(mod, bot):
+    app = FakeApp(bot)
+    make_factory(mod)(app, None)
+    return [h.callback for h, _ in app.handlers]
+
+
+def test_strong_clone_is_banned_even_for_a_photo():
+    mod = _mod(warning_ttl_seconds=0)
+    bot = _clone_bot()
+    on_message, _, _ = _wire_with(mod, bot)
+    data = {"update_id": 5, "message": {
+        "message_id": 90, "date": 1730000000, "photo": [{"file_id": "x", "file_unique_id": "y", "width": 1,
+                                                         "height": 1}],
+        "chat": {"id": -1001, "type": "supergroup", "title": "Test Group"},
+        "from": {"id": 66, "is_bot": False, "first_name": "Truth", "username": "heistruthx_"}}}
+    upd = Update.de_json(data, bot)
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
+    bot.ban_chat_member.assert_awaited_once_with(-1001, 66)
+    bot.delete_message.assert_awaited_with(-1001, 90)
+    assert "banned" in mod.store.recent(1)[0]["action"]
+
+
+def test_weak_clone_is_muted_not_banned():
+    mod = _mod(warning_ttl_seconds=0)
+    bot = _clone_bot()
+    on_message, _, _ = _wire_with(mod, bot)
+    upd = _update(bot, "hello everyone", user_id=67, first="Truth", username="kelvin_22")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
+    bot.ban_chat_member.assert_not_awaited()
+    bot.restrict_chat_member.assert_awaited()
+    bot.delete_message.assert_not_awaited()
+
+
+def test_clone_banned_on_join():
+    mod = _mod(warning_ttl_seconds=0)
+    bot = _clone_bot()
+    _, on_join, _ = _wire_with(mod, bot)
+    data = {"update_id": 6, "message": {
+        "message_id": 91, "date": 1730000000,
+        "chat": {"id": -1001, "type": "supergroup", "title": "Test Group"},
+        "from": {"id": 68, "is_bot": False, "first_name": "Truth Admin"},
+        "new_chat_members": [{"id": 68, "is_bot": False, "first_name": "Truth Admin"}]}}
+    asyncio.run(on_join(Update.de_json(data, bot), SimpleNamespace(bot=bot)))
+    bot.ban_chat_member.assert_awaited_once_with(-1001, 68)
+
+
+def test_ban_clones_off_only_mutes():
+    mod = _mod(warning_ttl_seconds=0, ban_clones=False)
+    bot = _clone_bot()
+    on_message, _, _ = _wire_with(mod, bot)
+    upd = _update(bot, "hi", user_id=69, first="Truth", username="heistruthx_")
     with pytest.raises(ApplicationHandlerStop):
         asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
     bot.ban_chat_member.assert_not_awaited()

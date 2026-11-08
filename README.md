@@ -7,7 +7,7 @@ Crypto groups get the same scams every day: fake airdrops, "validate your wallet
 ## What it does
 
 - **Removes scams on sight**: wallet drainers, fake airdrops and giveaways, fake support and DM bait, doubling and "account manager" scams, phishing look-alike links (MetaMask, Phantom, Uniswap and more), punycode domains, link shorteners, links hidden behind normal text or buttons.
-- **Catches admin impersonators**, on their first message or the moment they join.
+- **Bans admin and owner clones** the moment they join or speak: exact copies, "Name | Admin" style names, look-alike letters and copied usernames. Close-but-unsure names (a real member can share a first name) are muted and sent to you with a Ban button instead.
 - **Mutes, then bans**: a mute on the first catch, a ban after repeat strikes (both adjustable).
 - **Bans on sight** for near-certain scams: seed phrase asks, "send 1 get 2 back", fake recovery experts, anything on your blocklist.
 - **Warns the group** with a short message that cleans itself up after a minute.
@@ -64,6 +64,7 @@ plugins:
 | `mute_minutes` | `60` | Mute length on a catch (0 = no mute) |
 | `ban_after` | `3` | Strikes before a ban (0 = never) |
 | `ban_on_sight` | `true` | Ban on the first message for near-certain scams |
+| `ban_clones` | `true` | Ban accounts that clearly copy an admin or the owner |
 | `warn_in_group` | `true` | Post a short warning after removing |
 | `warning_ttl_seconds` | `60` | Delete the warning after this long |
 | `report_chat_id` | none | Where admin reports go |

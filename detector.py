@@ -295,6 +295,58 @@ class Admin:
 
 
 @dataclass
+class CloneMatch:
+    strength: str          # "strong" (ban) or "weak" (mute and report)
+    admin: Admin
+    reason: str
+
+
+STAFF_TOKENS = {"admin", "admins", "administrator", "support", "supports", "mod", "mods", "moderator", "official",
+                "team", "ceo", "founder", "cofounder", "dev", "devs", "help", "helpdesk", "owner", "care", "real",
+                "the", "official1", "staff", "manager", "cm", "service", "desk", "bot"}
+
+
+def _is_staffed_copy(mine: str, theirs: str) -> bool:
+    """mine is theirs plus only staff words, digits or one or two stray letters ("truthadmin", "truth_1", "truthx")."""
+    if not theirs or len(theirs) < 4 or theirs not in mine or mine == theirs:
+        return False
+    rest = mine.replace(theirs, "", 1)
+    if rest.isdigit():
+        return True
+    for _ in range(3):  # peel up to three staff words
+        for w in sorted(STAFF_TOKENS, key=len, reverse=True):
+            if rest.startswith(w):
+                rest = rest[len(w):]
+                break
+            if rest.endswith(w):
+                rest = rest[: -len(w)]
+                break
+        else:
+            break
+        if not rest or rest.isdigit():
+            return True
+    return False
+
+
+def _core(tok: str) -> str:
+    """Strip staff words from both ends: "signngmod" -> "signng", "officialtruthteam" -> "truth"."""
+    for _ in range(4):
+        before = tok
+        for w in sorted(STAFF_TOKENS, key=len, reverse=True):
+            if len(tok) - len(w) >= 4:
+                if tok.endswith(w):
+                    tok = tok[: -len(w)]
+                    break
+                if tok.startswith(w):
+                    tok = tok[len(w):]
+                    break
+        tok = tok.rstrip("0123456789") if len(tok.rstrip("0123456789")) >= 4 else tok
+        if tok == before:
+            break
+    return tok
+
+
+@dataclass
 class Verdict:
     score: float
     category: str
@@ -414,25 +466,71 @@ class Detector:
 
     # -- impersonation -------------------------------------------------------
 
+    def clone_check(self, sender: Sender, admins: Iterable[Admin]) -> Optional[CloneMatch]:
+        """Is this account dressed up as one of the group's admins or its owner?
+
+        strong: an exact copy of the admin's full name, the name plus a staff word ("Truth Admin",
+                "Truth | Support"), or a copied name together with a look-alike username. Banned at once.
+        weak:   the name is close but a real member could share it ("Truth" vs "Truth Okafor" is not
+                even weak; "Truthh" with an unrelated username is). Muted and reported to admins.
+        """
+        if sender.is_admin:
+            return None
+        my_name = _name_tokens(sender.full_name)
+        my_user = _name_tokens(sender.username)
+        best: Optional[CloneMatch] = None
+        for adm in admins:
+            if adm.user_id == sender.user_id:
+                continue
+            their_name = _name_tokens(adm.full_name)
+            their_user = _name_tokens(adm.username)
+            who = adm.full_name or ("@" + adm.username)
+
+            name_exact = bool(their_name) and my_name == their_name
+            name_staffed = bool(their_name) and _is_staffed_copy(my_name, their_name)
+            name_close = bool(their_name) and len(their_name) >= 4 and (
+                _similar(my_name, their_name) >= 0.85 or name_staffed
+                or (len(_core(their_name)) >= 5 and _core(my_name) == _core(their_name)))
+            # The display name copies the admin's username, e.g. name "heistruthx".
+            name_is_their_user = bool(their_user) and len(their_user) >= 5 and (
+                my_name == their_user or _is_staffed_copy(my_name, their_user))
+            user_close = bool(their_user) and bool(my_user) and len(their_user) >= 4 and (
+                _similar(my_user, their_user) >= 0.85 or _is_staffed_copy(my_user, their_user)
+                or (len(_core(their_user)) >= 4 and _core(my_user) == _core(their_user)))
+            user_has_name = bool(my_user) and len(their_name) >= 5 and _is_staffed_copy(my_user, their_name)
+            distinctive = len(their_name) >= 6 or len((adm.full_name or "").split()) >= 2
+
+            strength = ""
+            if name_staffed and not name_exact:
+                strength = "strong"
+                reason = f"copies the admin {who}'s name and adds a staff title"
+            elif (name_exact or name_close or name_is_their_user) and (user_close or user_has_name):
+                strength = "strong"
+                reason = f"copies both the name and the username of the admin {who}"
+            elif name_exact and distinctive:
+                strength = "strong"
+                reason = f"uses the exact name of the admin {who}"
+            elif name_is_their_user:
+                strength = "strong"
+                reason = f"uses the admin {who}'s username as its display name"
+            elif name_exact or name_close or user_close:
+                strength = "weak"
+                reason = f"name looks like the admin {who} but is a different account"
+            if strength and (best is None or (strength == "strong" and best.strength != "strong")):
+                best = CloneMatch(strength, adm, reason)
+                if strength == "strong":
+                    break
+        return best
+
     def _check_impersonation(self, sender: Sender, admins: Iterable[Admin]) -> list[tuple[float, str, str]]:
         hits: list[tuple[float, str, str]] = []
         if sender.is_admin:
             return hits
-        name = sender.full_name or ""
-        uname = sender.username or ""
-        me = _name_tokens(name + uname)
-        for adm in admins:
-            if adm.user_id == sender.user_id:
-                continue
-            for theirs in (_name_tokens(adm.full_name), _name_tokens(adm.username)):
-                if len(theirs) >= 4 and len(me) >= 4:
-                    a, b = _name_tokens(name) or me, theirs
-                    u = _name_tokens(uname)
-                    if max(_similar(a, b), _similar(u, b) if u else 0) >= 0.85 or (b in me and len(b) >= 5):
-                        who = adm.full_name or ("@" + adm.username)
-                        hits.append((0.7, "impersonation", f"name copies the admin {who} but is a different account"))
-                        return hits
-        if IMPERSONATION_WORDS.search(normalise(name + " " + uname)):
+        clone = self.clone_check(sender, admins)
+        if clone:
+            hits.append((1.0 if clone.strength == "strong" else 0.7, "impersonation", clone.reason))
+            return hits
+        if IMPERSONATION_WORDS.search(normalise((sender.full_name or "") + " " + (sender.username or ""))):
             hits.append((0.3, "impersonation", "calls itself admin, support or official but is not an admin"))
         return hits
 
