@@ -272,6 +272,20 @@ class Moderator:
         await self._report(bot, incident, chat, name, v, action, text, "")
         return incident
 
+    async def is_linked_channel(self, bot: Any, chat_id: Any, sender_chat_id: Any) -> bool:
+        """True when a message comes from the channel linked to this group (its announcements)."""
+        key = f"linked:{chat_id}"
+        cached = self._admins.get(key)
+        if not cached or time.time() - cached[0] > ADMIN_TTL:
+            linked = None
+            try:
+                linked = getattr(await bot.get_chat(chat_id), "linked_chat_id", None)
+            except Exception as exc:
+                logger.info("ratcatcher: could not read linked channel for %s: %s", chat_id, exc)
+            cached = (time.time(), linked)
+            self._admins[key] = cached
+        return cached[1] is not None and cached[1] == sender_chat_id
+
     async def rejoin_link(self, bot: Any, chat_id: Any) -> str:
         """A one-time invite link, valid for a day, to send someone who was unbanned."""
         try:
@@ -459,8 +473,14 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
             if user.id == context.bot.id or not mod.protects(chat.id):
                 return
             admins = await mod.admins(context.bot, chat.id)
-            is_admin = any(a.user_id == user.id for a in admins) or getattr(msg, "sender_chat", None) is not None \
-                and getattr(msg.sender_chat, "id", None) == chat.id
+            sender_chat = getattr(msg, "sender_chat", None)
+            is_admin = (any(a.user_id == user.id for a in admins)
+                        # anonymous admin posting as the group itself
+                        or (sender_chat is not None and getattr(sender_chat, "id", None) == chat.id)
+                        # the group's linked announcement channel, auto-forwarded by Telegram
+                        or bool(getattr(msg, "is_automatic_forward", False))
+                        or (sender_chat is not None and await mod.is_linked_channel(context.bot, chat.id,
+                                                                                    sender_chat.id)))
             joined_ts, seen = mod.store.member_seen(chat.id, user.id)
             sender = Sender(user_id=user.id, full_name=user.full_name or "", username=user.username or "",
                             is_admin=is_admin, prior_messages=seen,

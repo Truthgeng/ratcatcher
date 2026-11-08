@@ -480,3 +480,31 @@ def test_release_falls_back_when_dm_is_blocked():
         asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}"), SimpleNamespace(bot=bot)))
     call = bot.edit_message_text.await_args
     assert "Forward them this one-time link" in str(call.args) + str(call.kwargs)
+
+
+def _channel_update(bot, auto_forward, channel_id):
+    data = {"update_id": 12, "message": {
+        "message_id": 95, "date": 1730000000, "text": SCAMS[0],
+        "chat": {"id": -1001, "type": "supergroup", "title": "Test Group"},
+        "from": {"id": 136817688, "is_bot": True, "first_name": "Channel", "username": "Channel_Bot"},
+        "sender_chat": {"id": channel_id, "type": "channel", "title": "Announcements"}}}
+    if auto_forward:
+        data["message"]["is_automatic_forward"] = True
+    return Update.de_json(data, bot)
+
+
+def test_linked_channel_announcement_is_not_touched():
+    mod = _mod()
+    bot, on_message = _wire(mod)
+    bot.get_chat = AsyncMock(return_value=SimpleNamespace(linked_chat_id=-100777))
+    asyncio.run(on_message(_channel_update(bot, True, -100777), SimpleNamespace(bot=bot)))
+    bot.delete_message.assert_not_awaited()
+
+
+def test_unrelated_channel_posting_scams_is_removed():
+    mod = _mod(warning_ttl_seconds=0)
+    bot, on_message = _wire(mod)
+    bot.get_chat = AsyncMock(return_value=SimpleNamespace(linked_chat_id=-100777))
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(_channel_update(bot, False, -100555), SimpleNamespace(bot=bot)))
+    bot.delete_message.assert_awaited()
