@@ -16,7 +16,7 @@ Ratcatcher guards the Telegram groups this Hermes bot is in. It removes scam mes
 
 ## Setup checklist (when the user is setting it up)
 
-1. Add the bot to the group and make it admin with "Delete messages" and "Ban users".
+1. Add the bot to the group and make it admin with "Delete messages", "Ban users" and "Invite users via link".
 2. In BotFather, turn privacy mode off (`/setprivacy` → Disable) if the bot is not admin, or it only sees commands.
 3. Set `report_chat_id` to the user's own Telegram id so reports with Release and Ban buttons arrive in DM. The user must have started a chat with the bot.
 4. Add the project's real domains to `allowed_domains`.

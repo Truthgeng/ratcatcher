@@ -34,7 +34,7 @@ Then restart the Hermes gateway with Telegram connected.
 
 ## Set up the group
 
-1. Add your Hermes bot to the group and make it **admin** with *Delete messages* and *Ban users*.
+1. Add your Hermes bot to the group and make it **admin** with *Delete messages*, *Ban users* and *Invite users via link* (used to give released people a one-time rejoin link).
 2. If the bot is not admin, turn privacy mode off in @BotFather (`/setprivacy` → Disable), or it only sees commands.
 3. Start a DM with the bot, then set `report_chat_id` to your Telegram user id to get reports with buttons.
 4. Add your project's real domains to `allowed_domains` so they are never flagged.

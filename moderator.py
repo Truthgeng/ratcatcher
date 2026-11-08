@@ -268,6 +268,16 @@ class Moderator:
         await self._report(bot, incident, chat, name, v, action, text, "")
         return incident
 
+    async def rejoin_link(self, bot: Any, chat_id: Any) -> str:
+        """A one-time invite link, valid for a day, to send someone who was unbanned."""
+        try:
+            link = await bot.create_chat_invite_link(chat_id, member_limit=1, expire_date=int(time.time() + 86400),
+                                                     name="Ratcatcher release")
+            return getattr(link, "invite_link", "") or ""
+        except Exception as exc:
+            logger.info("ratcatcher: could not create invite link (needs 'Invite users' admin right): %s", exc)
+            return ""
+
     async def _mute(self, bot: Any, chat_id: Any, user_id: Any, minutes: int) -> bool:
         from telegram import ChatPermissions
         try:
@@ -405,7 +415,7 @@ async def _mark_report(q: Any, line: str, inc_id: str, buttons: list) -> None:
         base = base.split("\n\n<b>✅")[0].split("\n\n<b>⛔")[0]
         markup = InlineKeyboardMarkup([[InlineKeyboardButton(t, callback_data=f"{CALLBACK_PREFIX}:{v}:{inc_id}")
                                         for t, v in buttons]])
-        await q.edit_message_text(f"{base}\n\n<b>{line}</b>", parse_mode="HTML", reply_markup=markup,
+        await q.edit_message_text(f"{base}\n\n<b>{html.escape(line)}</b>", parse_mode="HTML", reply_markup=markup,
                                   disable_web_page_preview=True)
     except Exception as exc:
         logger.info("ratcatcher: could not update report: %s", exc)
@@ -510,6 +520,10 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
                                 }.get(result, "Could not release, check the bot's admin rights"))
                 note = {"unbanned": "✅ Unbanned", "unmuted": "✅ Unmuted",
                         "nothing_to_undo": "✅ Released"}.get(result)
+                if result == "unbanned":
+                    link = await mod.rejoin_link(context.bot, incident["chat_id"])
+                    note += (f"\nSend them this one-time link to rejoin: {link}" if link else
+                             "\nAdd them back from the group, or send them the group link.")
                 buttons = [["Ban", "ban"]]
             elif verb == "ban":
                 ok = await mod._ban(context.bot, incident["chat_id"], incident["user_id"])

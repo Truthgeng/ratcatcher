@@ -413,6 +413,7 @@ def _button_setup(status):
     bot.unban_chat_member = AsyncMock(return_value=True)
     bot.answer_callback_query = AsyncMock(return_value=True)
     bot.edit_message_text = AsyncMock(return_value=True)
+    bot.create_chat_invite_link = AsyncMock(return_value=SimpleNamespace(invite_link="https://t.me/+abc123"))
     inc = mod.store.add_incident(chat_id=-1001, chat_title="G", message_id=1, user_id=66, user_name="Clone",
                                  text="hi", score=1.0, category="impersonation", reasons=["r"], action="banned")
     _, _, on_button = _wire_with(mod, bot)
@@ -425,6 +426,9 @@ def test_release_button_unbans_a_banned_account():
         asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}"), SimpleNamespace(bot=bot)))
     bot.unban_chat_member.assert_awaited_once()
     bot.restrict_chat_member.assert_not_awaited()
+    bot.create_chat_invite_link.assert_awaited_once()
+    call = bot.edit_message_text.await_args
+    assert "t.me/+abc123" in str(call.args) + str(call.kwargs)
     assert mod.store.get_incident(inc)["released"] == 1
 
 

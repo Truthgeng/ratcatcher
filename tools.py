@@ -158,11 +158,18 @@ def build(mod: Moderator) -> dict[str, Any]:
         except Exception as exc:
             return json.dumps({"error": str(exc)})
         ok = result != "failed"
+        link = ""
         if ok:
             mod.store.set_incident(inc["id"], released=1)
+            if result == "unbanned":
+                try:
+                    link = mod.run_on_bot_loop(lambda bot: mod.rejoin_link(bot, inc["chat_id"]))
+                except Exception:
+                    link = ""
         return json.dumps({"ok": ok, "result": result, "released": inc["user_name"], "group": inc["chat_title"],
-                           "note": "Banned accounts are unbanned and can rejoin with the group link."
-                           if result == "unbanned" else ""})
+                           "rejoin_link": link or None,
+                           "note": "Unbanned. Telegram does not let bots add people back, so send them the "
+                                   "rejoin link." if result == "unbanned" else ""})
 
     return {"ratcatcher_check": (CHECK, check), "ratcatcher_report": (REPORT, report),
             "ratcatcher_blocklist": (BLOCKLIST, blocklist), "ratcatcher_release": (RELEASE, release)}
