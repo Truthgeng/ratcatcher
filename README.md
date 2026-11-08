@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/banner.jpg" alt="Ratcatcher" width="720"></p>
+
 # 🐀 Ratcatcher
 
 A scam bouncer for the Telegram groups your Hermes bot runs in.
