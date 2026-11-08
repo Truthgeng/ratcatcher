@@ -48,10 +48,11 @@ class Settings:
     mode: str = "enforce"              # enforce | watch
     protected_chats: tuple = ()        # empty = every group the bot is in
     block_threshold: float = 0.8
-    review_threshold: float = 0.45
+    review_threshold: float = 0.3
     ai_review: bool = True
     mute_minutes: int = 60
     ban_after: int = 3
+    ban_on_sight: bool = True        # ban at once for near-certain scams
     warn_in_group: bool = True
     warning_ttl_seconds: int = 60
     report_chat_id: str = ""
@@ -204,7 +205,7 @@ class Moderator:
                 logger.info("ratcatcher: delete failed in %s: %s", chat.id, exc)
             if user is not None:
                 strikes = self.store.add_strike(chat.id, user.id)
-                if s.ban_after and strikes >= s.ban_after:
+                if (s.ban_on_sight and v.certain) or (s.ban_after and strikes >= s.ban_after):
                     if await self._ban(bot, chat.id, user.id):
                         actions.append("banned")
                 elif s.mute_minutes > 0:

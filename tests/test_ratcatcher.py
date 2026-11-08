@@ -23,6 +23,42 @@ from ratcatcher import tools as rc_tools  # noqa: E402
 
 ADMINS = [Admin(1, "Truth", "heistruthx"), Admin(2, "Sign Nigeria Mod", "signng_mod")]
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from corpus import CLEAN as CORPUS_CLEAN, FRESH_CLEAN, FRESH_SCAMS, SCAMS as CORPUS_SCAMS  # noqa: E402
+
+_CORPUS = [(fam, t) for fam, lines in CORPUS_SCAMS.items() for t in lines]
+
+
+@pytest.mark.parametrize("family,text", _CORPUS)
+def test_corpus_scams_are_removed(family, text):
+    v = Detector().check(text, Sender(99, "Random", "random99"), ADMINS)
+    assert v.score >= 0.8, (family, text, v.as_dict())
+
+
+@pytest.mark.parametrize("text", FRESH_SCAMS)
+def test_fresh_scams_reach_at_least_ai_review(text):
+    v = Detector().check(text, Sender(99, "Random", "random99"), ADMINS)
+    assert v.score >= Settings().review_threshold, (text, v.as_dict())
+
+
+@pytest.mark.parametrize("text", CORPUS_CLEAN + FRESH_CLEAN)
+def test_corpus_clean_chat_is_never_removed(text):
+    v = Detector().check(text, Sender(98, "Member", "member98"), ADMINS)
+    assert v.score < 0.45, (text, v.as_dict())
+
+
+@pytest.mark.parametrize("text", [
+    "Type your 12 word recovery phrase in the form to restore access",
+    "Send 1 ETH get 2 ETH back, Vitalik giveaway is live",
+    "Need to recover stolen crypto? Our ethical hacker team can trace and retrieve lost funds",
+])
+def test_near_certain_scams_are_marked_for_ban_on_sight(text):
+    assert Detector().check(text, Sender(9, "x", "x"), ADMINS).certain
+
+
+def test_safety_warning_is_not_certain():
+    assert not Detector().check("never share your seed phrase", Sender(9, "x", "x"), ADMINS).certain
+
 SCAMS = [
     "🎉 $SIGN airdrop is LIVE! Claim now before it ends: https://sign-claim.xyz/connect",
     "Having issues? DM me, I'm from support. Or message @SignSupportDeskBot",
@@ -238,3 +274,22 @@ def test_hidden_text_link_entity_is_read():
         {"type": "text_link", "offset": 0, "length": 8, "url": "https://metamask-sync.click/connect"}])
     with pytest.raises(ApplicationHandlerStop):
         asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
+
+
+def test_ban_on_sight_bans_first_time():
+    mod = _mod(warn_in_group=False)
+    bot, on_message = _wire(mod)
+    upd = _update(bot, "Pls paste your 12 word phrase here so the system can restore your funds")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
+    bot.ban_chat_member.assert_awaited_once()
+
+
+def test_ban_on_sight_off_only_mutes():
+    mod = _mod(warn_in_group=False, ban_on_sight=False)
+    bot, on_message = _wire(mod)
+    upd = _update(bot, "Pls paste your 12 word phrase here so the system can restore your funds")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
+    bot.ban_chat_member.assert_not_awaited()
+    bot.restrict_chat_member.assert_awaited()

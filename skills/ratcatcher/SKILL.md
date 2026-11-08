@@ -24,7 +24,7 @@ Ratcatcher guards the Telegram groups this Hermes bot is in. It removes scam mes
 
 ## How it decides
 
-Pattern rules score each message from 0 to 1. At or above the remove score (default 0.8) it acts. Between the second-look score (0.45) and the remove score, the current model reviews it once. Admins are never touched. Safety warnings like "never share your seed phrase" are scored down.
+Pattern rules score each message from 0 to 1. At or above the remove score (default 0.8) it acts. Between the second-look score (0.3) and the remove score, the current model reviews it once. Admins are never touched. Safety warnings like "never share your seed phrase" are scored down.
 
 ## When answering
 

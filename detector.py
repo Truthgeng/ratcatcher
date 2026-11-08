@@ -46,47 +46,184 @@ def _deleet(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 # (pattern, weight, category, reason). Weights add up; the score is capped at 1.0.
+#
+# How weights are set:
+#   0.90  near-certain on its own (asks for a seed phrase, "send 1 get 2 back"). Counts for ban on sight.
+#   0.40-0.60  strong signal, needs one more thing to be removed.
+#   0.10-0.35  weak on its own. Everyday words live here, so one of them never removes a message.
 PHRASE_RULES: list[tuple[str, float, str, str]] = [
-    # Wallet drainers dressed up as "fixes"
-    (r"\b(validate|sync|rectify|restore|unlock|migrate|verify)\b.{0,25}\bwallets?\b", 0.45, "drainer",
-     "asks people to 'validate' or 'sync' their wallet, a common drainer line"),
-    (r"\bconnect (your )?wallet\b", 0.30, "drainer", "tells people to connect their wallet"),
-    (r"\b(enter|type|submit|share|send|input|paste|provide|import)\b.{0,30}\b(seed|recovery|secret|mnemonic) (phrase|words?)\b",
-     0.6, "drainer", "asks people to enter or share their seed phrase"),
-    (r"\b(seed|recovery|secret|mnemonic) (phrase|words?)\b", 0.25, "drainer",
+    # ---- Seed phrase and private key phishing --------------------------------------------------
+    (r"\b(enter|type|submit|share|send|input|paste|provide|import|drop|fill( in)?|give( me)?|write)\b.{0,35}"
+     r"(\b(seed|recovery|secret|mnemonic|backup|pass|wallet) ?(phrase|words?|keys?)\b|\b(12|24|twelve|twenty[- ]four)"
+     r"[- ]?words?\b|\b(your|ur|the) phrase\b)",
+     0.90, "drainer", "asks people to enter or share their seed phrase"),
+    (r"\b(send|share|give|enter|paste|provide|drop)\b.{0,25}\b(private ?keys?|keystore|key ?file|json file)\b",
+     0.90, "drainer", "asks people to share a private key or keystore"),
+    (r"\b(seed|recovery|secret|mnemonic) (phrase|words?)\b|\b(12|24)[- ]?words?\b", 0.25, "drainer",
      "mentions a seed or recovery phrase"),
-    (r"\bprivate key\b", 0.45, "drainer", "mentions a private key"),
-    # Fake airdrops and giveaways
-    (r"\b(airdrop|giveaway|reward|allocation|whitelist|presale)\b.{0,40}\b(live|claim|now|ends?|eligible|open)\b",
-     0.35, "fake_airdrop", "pushes an airdrop or reward claim"),
-    (r"\bclaim (your|now|here|free)\b", 0.30, "fake_airdrop", "urges people to claim something"),
-    (r"\b(first|only) \d+ (users|people|wallets|members)\b|\blimited (slots|spots)\b", 0.20, "fake_airdrop",
-     "creates false urgency with limited slots"),
-    # Fake support / DM bait
-    (r"\b(dm|inbox|pm|message|text|contact) (me|us|admin|support|the admin)\b", 0.35, "fake_support",
+    (r"\bprivate ?keys?\b", 0.30, "drainer", "mentions a private key"),
+    (r"\bimport (your )?wallet\b|\bmanual(ly)? (connect|import)\b", 0.40, "drainer",
+     "asks people to import their wallet somewhere"),
+
+    # ---- Wallet drainers dressed up as fixes --------------------------------------------------
+    (r"\b(validate|sync|synchroni[sz]e|rectify|restore|unlock|migrate|verify|reactivate|recti?fy|unfreeze|"
+     r"whitelist|revalidate|upgrade|initiali[sz]e|authenticate|debug)\b.{0,25}\b(your )?(wallets?|dapps?|tokens?|"
+     r"assets?|funds|address(es)?|account)\b", 0.45, "drainer",
+     "asks people to 'validate' or 'sync' their wallet, a common drainer line"),
+    (r"\bconnect (your |ur )?wallets?\b|\bwallet ?connect\b", 0.30, "drainer", "tells people to connect their wallet"),
+    (r"\b(decentrali[sz]ed|dapp|defi) (platform|protocol|site|website|tool|portal|node)\b.{0,40}"
+     r"\b(fix|resolve|rectify|solve|sync|validate|claim)\b", 0.50, "drainer",
+     "points to a 'decentralized platform' to fix a problem"),
+    (r"\b(gas|fee|tax) (refund|rebate|reimbursement)s?\b|\bclaim (your )?(gas|refund|compensation)\b", 0.45,
+     "drainer", "offers a fake gas refund or compensation claim"),
+    (r"\b(revoke|approve|sign) (the |this )?(transaction|contract|approval|permit)\b.{0,30}\b(to (get|receive|claim|"
+     r"unlock|fix)|now|here)\b", 0.40, "drainer", "pushes people to sign or approve a transaction"),
+    (r"\b(compromised|hacked|flagged|suspended|blacklisted|frozen|restricted)\b.{0,25}\b(wallets?|accounts?|address)"
+     r"\b|\b(wallets?|accounts?)\b.{0,15}\b(compromised|flagged|suspended|blacklisted|frozen|restricted)\b", 0.30,
+     "drainer", "scares people that their wallet is compromised or frozen"),
+    (r"\b(rpc|node) (error|issue|sync|failure)\b|\bwrong (rpc|node|network)\b", 0.25, "drainer",
+     "uses fake RPC or node errors as a hook"),
+
+    # ---- Fake airdrops, presales, mints and giveaways -----------------------------------------
+    (r"\b(airdrop|giveaway|reward|allocation|whitelist|presale|pre-sale|mint|tge|retro ?drop|refund|"
+     r"distribution|bonus|drop)s?\b.{0,40}\b(is |are )?(live|claimable|now open|open now|started|ends?|ending|"
+     r"eligible|unclaimed|ready|available)\b", 0.35, "fake_airdrop", "pushes an airdrop or reward claim"),
+    (r"\bclaim (your|now|here|free|it|them|today|before|fast|immediately)\b|\bclaim (page|portal|link|site)\b",
+     0.30, "fake_airdrop", "urges people to claim something"),
+    (r"\b(check|confirm|verify) (your |if you are |if your wallet is )?(eligib|allocation|airdrop|snapshot)", 0.35,
+     "fake_airdrop", "sends people to check 'eligibility'"),
+    (r"\bfree (mints?|tokens?|nfts?|crypto|usdt|eth|sol|btc|bnb|money|airdrops?|claims?|giveaways?)\b", 0.35, "fake_airdrop",
+     "offers free crypto"),
+    (r"\b(stealth|fair) launch\b.{0,40}\b(now|live|link|join|buy)\b|\b(presale|pre-sale) (link|is live|now)\b",
+     0.25, "fake_airdrop", "shills a sudden launch or presale link"),
+    (r"\b(first|only|next) \d+ (users|people|wallets|members|participants|persons)\b|\blimited (slots|spots|"
+     r"supply|time|offer)\b", 0.20, "fake_airdrop", "creates false urgency with limited slots"),
+    (r"\b(winners?|you (have )?(been )?selected|congratulations?|congrats)\b.{0,40}\b(claim|reward|prize|won|win|"
+     r"airdrop|giveaway|usdt|eth)\b", 0.35, "fake_airdrop", "tells people they won something"),
+
+    # ---- Urgency (only adds weight, never removes on its own) ---------------------------------
+    (r"\b(hurry|act fast|act now|last chance|don'?t miss|before it'?s too late|ends? (in|soon|today|tonight)|"
+     r"expires? (in|soon|today)|only \d+ (hours?|hrs?|minutes?|mins?) left|asap|(claim|buy|join|grab) (it )?fast)\b", 0.15, "",
+     "pushes people to act fast"),
+
+    # ---- Fake support and DM bait --------------------------------------------------------------
+    (r"\b(dm|inbox|pm|message|text|contact|write( to)?|reach( out to)?|chat( with)?)\s+(me|us|admin|support|"
+     r"the admin|an admin|the team|customer care)\b", 0.35, "fake_support",
      "pulls people into DMs, real admins never ask first"),
-    (r"\b(support|help ?desk|customer care|technical team)\b.{0,30}\b(dm|inbox|contact|bot|link|ticket)\b",
-     0.35, "fake_support", "pretends to be a support desk"),
-    (r"\bopen a (support )?ticket\b", 0.30, "fake_support", "asks people to open a 'ticket' outside the group"),
-    (r"\b(i'?m|i am|we'?re|we are|this is)\s+(from\s+)?(the\s+|an?\s+|your\s+)?(official\s+)?(support|admin|"
-     r"moderator|mod|help ?desk|customer care|team|dev team|technical team)\b", 0.40, "fake_support",
+    (r"\b(support|help ?desk|customer (care|service)|technical team|tech team|live (chat|agent))\b.{0,30}"
+     r"\b(dm|inbox|contact|bot|link|ticket|whatsapp|telegram|form)\b", 0.35, "fake_support",
+     "pretends to be a support desk"),
+    (r"\b(open|create|submit|raise|file) a (support |help )?(ticket|request|complaint)\b", 0.30, "fake_support",
+     "asks people to open a 'ticket' outside the group"),
+    (r"\b(i'?m|i am|we'?re|we are|this is|am)\s+(from\s+)?(the\s+|an?\s+|your\s+)?(official\s+)?(support|admin|"
+     r"administrator|moderator|mod|help ?desk|customer care|team|dev(eloper)? team|developer|technical team|"
+     r"community manager)\b|\b(one of the|part of the|from the) (devs?|developers|team|admins?|mods?|"
+     r"moderators|support( team)?|core team)\b", 0.40, "fake_support",
      "claims to be support or staff without being an admin"),
-    (r"\b(issues?|problems?|trouble|stuck|errors?|difficult(y|ies)|delayed|pending|missing)\b.{0,30}"
-     r"\b(wallet|transaction|withdrawals?|deposits?|funds|tokens|account|claim|bridge|swap)\b|"
+    (r"\b(issues?|problems?|trouble|stuck|errors?|difficult(y|ies)|delayed|pending|missing|complaints?)\b.{0,30}"
+     r"\b(wallet|transaction|withdrawals?|deposits?|funds|tokens|account|claim|bridge|swap|staking)\b|"
      r"\b(wallet|transaction|withdrawal|deposit|funds|tokens|claim|bridge|swap)s?\b.{0,12}"
-     r"\b(stuck|pending|delayed|missing|failed|not (showing|working|syncing))\b", 0.20,
+     r"\b(stuck|pending|delayed|missing|failed|issues?|problems?|errors?|not (showing|working|syncing|reflecting))\b",
+     0.20,
      "fake_support", "fishes for people with wallet or transaction problems"),
     (r"\b(dm|inbox|pm|message|text|contact|reach out to)\b.{0,15}\b(me|us)\b.{0,25}\b(help|fix|resolve|"
-     r"assist|solution|sort)\b|\bi can help\b.{0,25}\b(dm|inbox|pm)\b", 0.25, "fake_support",
-     "offers private help in DMs"),
-    # Investment bait
-    (r"\b(doubl(e|es|ing)|tripl(e|es|ing)|2x|3x|10x) (your|ur)\b|\bsend\b.{0,80}\b(get|receive)\b.{0,20}\bback\b", 0.50, "investment_scam",
+     r"assist|solution|sort|guide)\b|\bi can (help|assist|fix|guide)\b.{0,25}\b(dm|inbox|pm|message)\b",
+     0.25, "fake_support", "offers private help in DMs"),
+    (r"\b(drop|send|tell|share|explain) (me )?(your |ur )?(issue|complaint|problem|request|challenge)s?\b|"
+     r"\bcheck (your |ur )?(dm|inbox|pm)s?\b", 0.30, "fake_support", "asks people to send problems to a private chat"),
+    (r"\b(whatsapp|wa\.me|signal)\b.{0,20}\+?\d[\d\s-]{7,}", 0.40, "fake_support",
+     "moves people to a WhatsApp or Signal number"),
+
+    # ---- Fake recovery experts (a scam aimed at people already scammed) -------------------------
+    (r"\b(recover|retrieve|get back|restore|trace)\b.{0,25}\b(lost|stolen|scammed|hacked|missing)\b.{0,20}"
+     r"\b(funds|crypto|coins|money|btc|eth|usdt|assets|wallet)\b", 0.55, "investment_scam",
+     "offers to recover lost or stolen crypto, a common follow-up scam"),
+    (r"\b(recovery|hack(er)?|ethical hacker|blockchain) (expert|specialist|agent|company|team|service)\b|"
+     r"\b(hacker|expert)\b.{0,25}\b(helped me|recovered|got (my|back))\b", 0.90, "investment_scam",
+     "advertises a 'recovery expert' or hacker"),
+
+    # ---- Investment, doubling and signal scams ------------------------------------------------
+    (r"\b(doubl(e|es|ing)|tripl(e|es|ing)|multiply|2x|3x|5x|10x) (your|ur|ya)\b|\bsend\b.{0,80}\b(get|receive)\b"
+     r".{0,20}\bback\b|\bsend \d+(\.\d+)?\s?\w+ (and |to )?(get|receive) \d+", 0.90, "investment_scam",
      "promises to multiply money sent"),
-    (r"\bguaranteed (profit|returns?|income)\b|\b(daily|weekly) (profit|returns?) of\b", 0.45, "investment_scam",
-     "promises guaranteed profit"),
-    (r"\b(account|investment|trading|forex) manager\b|\bi made \$?\d[\d,]*k? (with|from|using)\b", 0.35,
-     "investment_scam", "classic 'account manager' or testimonial bait"),
-    (r"\bmining (pool|contract|plan)\b|\bcloud mining\b", 0.30, "investment_scam", "cloud mining pitch"),
+    (r"\bguaranteed\b.{0,15}\b(profits?|returns?|income|roi|earnings|gains?|payouts?)\b|\b(risk[- ]free|no risk)\b"
+     r".{0,20}\b(profits?|returns?|income|trading|investment)\b|\b(daily|weekly|monthly) (profit|returns?|roi|"
+     r"income) of\b", 0.45, "investment_scam", "promises guaranteed or risk-free profit"),
+    (r"\b(earn|make|making|made|get)\b.{0,10}\$?\d[\d,.]*\s?(k|usd|usdt|dollars|\$)?.{0,15}\b(daily|weekly|"
+     r"per (day|week|hour)|a day|a week|every (day|week)|in \d+ (hours|days))\b", 0.35, "investment_scam",
+     "promises fixed earnings per day or week"),
+    (r"\b(account|investment|trading|forex|portfolio|crypto|fund) (manager|expert|mentor|coach)\b|\b(mrs?|ms|miss|"
+     r"sir|madam)\.? \w+ (helped|changed|made|has been)\b|\bi (made|earned|got)\b.{0,10}\$?\d[\d,]*k?.{0,15}\b(with|"
+     r"from|using|thanks to)\b", 0.35, "investment_scam", "classic 'account manager' or testimonial bait"),
+    (r"\b(cloud|bitcoin|btc) mining\b|\bmining (pool|contract|plan|investment)\b|\b(binary options?|forex trading "
+     r"platform|investment (plan|platform|package)s?)\b", 0.30, "investment_scam",
+     "mining or investment-plan pitch"),
+    (r"\b(vip|premium|paid|private)\s+(signals?|group|channel|calls?)\b|\b(pump|insider) (group|signals?|calls?)\b|"
+     r"\b100x (gem|coin|token)\b", 0.35, "investment_scam", "sells VIP signals or pump groups"),
+    (r"\b(giving away|give ?away of|distributing)\b.{0,10}\$?\d[\d,.]*\s?k?\s?(btc|eth|usdt|sol|bnb|usd|dollars|"
+     r"coins|tokens)\b", 0.35, "investment_scam", "announces a huge crypto giveaway"),
+    (r"\b(elon|musk|cz|saylor|vitalik|binance|coinbase|tesla)\b.{0,40}\b(giveaway|is giving|celebrat|doubl|"
+     r"send)\b", 0.50, "investment_scam", "fake celebrity or exchange giveaway"),
+
+    # ---- Job, task and earn-money spam ---------------------------------------------------------
+    (r"\b(work from home|part[- ]time (job|work)|remote (job|work)|online (job|task)s?|hiring now|we are "
+     r"hiring)\b.{0,50}\b(earn|pay|paid|\$|usdt|daily|per day)\b", 0.40, "investment_scam",
+     "offers a too-good job or paid tasks"),
+    (r"\b(like|follow|review|rate|watch)\b.{0,20}\b(videos?|posts?|products?|apps?)\b.{0,20}\b(and |to )?(get "
+     r"paid|earn|make money)\b", 0.40, "investment_scam", "classic paid-tasks scam"),
+
+    # ---- Promo spam and channel bait -----------------------------------------------------------
+    (r"\b(check|see|visit|look at) (my |the )?(bio|profile|pinned|channel)\b|\blink in (my )?bio\b", 0.35,
+     "phishing_link", "sends people to a link in a profile or bio"),
+    (r"\bjoin (my|our|this) (channel|group|vip|community)\b|\bt\.me/(\+|joinchat/)", 0.30, "phishing_link",
+     "pushes an outside Telegram group or private invite"),
+    (r"\b(trending|volume bot|cmc|coingecko|dexscreener) (service|listing|boost|promotion)s?\b|\b(promote|boost|"
+     r"pump) your (project|token|coin)\b|\bshill(ing)? service\b", 0.30, "phishing_link",
+     "promotion or 'trending' service spam"),
+
+    # ---- Added after testing on fresh scams ---------------------------------------------------
+    (r"\b(not|isn'?t|is not|un)[- ]?(verified|synced|synchroni[sz]ed|validated|activated|whitelisted|authenticated)\b",
+     0.30, "drainer", "claims your wallet or account is 'not verified' to push a fix"),
+    (r"\bor (you )?(will )?(lose|forfeit|miss)\b.{0,20}\b(them|it|tokens?|funds|assets|allocation|rewards?)\b|"
+     r"\bwill (lose|forfeit) (their|your|all)\b|\b(lose|lost) (your|ur) (bag|tokens|funds|allocation)\b", 0.25, "drainer", "threatens that you will lose your tokens"),
+    (r"\b(fill|submit|complete) (the|this|a|our) (form|google form|survey)\b.{0,40}\b(wallet|address|details|"
+     r"phrase|keys?)\b|\b(wallet|account|card|bank|login) (details|info|information|credentials)\b", 0.40,
+     "drainer", "asks for wallet or account details in a form"),
+    (r"\b(dm|message|contact|text|reach|write to|ping|chat)\s+@\w{4,}", 0.30, "fake_support",
+     "points people to a private handle for help"),
+    (r"\b(contact|text|message|reach|dm|whatsapp)\s+(him|her|them)\b", 0.30, "investment_scam",
+     "refers people to a third person to contact"),
+    (r"\b(with|via|through|thanks to)\s+(mrs?|ms|miss|sir|madam|dr|prof)\.?\s+[a-z]+\b", 0.30, "investment_scam",
+     "credits a named 'mentor' for profits, testimonial bait"),
+    (r"\binvested\b.{0,15}\$?\d[\d,.]*\s?k?\b.{0,30}\b(got|made|earned|received|returned|now have)\b.{0,10}"
+     r"\$?\d", 0.40, "investment_scam", "testimonial about turning a small amount into a big one"),
+    (r"\b(register|sign up|signup|create an account) (on|at|with) (our|my|this) (platform|site|website|app|"
+     r"exchange)\b", 0.30, "investment_scam", "pushes sign-up on an outside platform"),
+    (r"\b\d+\s?(usdt|usd|\$|eth|sol|bnb|trx)\s+(free|bonus|reward)\b|\bfree (bonus|signup bonus|welcome bonus)\b",
+     0.35, "fake_airdrop", "offers a free crypto bonus"),
+
+    (r"\b(exclusive|private|early) (whitelist|presale|pre-sale|access|allocation|round)\b|\bonly \d+ "
+     r"(spots?|slots?|places?|seats?)? ?(left|remaining)\b", 0.25, "fake_airdrop", "exclusive spots with a countdown"),
+    (r"\b(recovered|got back|retrieved|restored)\b.{0,10}\b(my|all my|his|her)\b.{0,10}\b(usdt|btc|eth|funds|"
+     r"crypto|money|coins|wallet|assets)\b|\b(i know|i found) (a guy|someone|a hacker|an expert)\b", 0.50,
+     "investment_scam", "recovery testimonial pointing to 'a guy'"),
+    (r"\bmy (mentor|coach|manager|broker|trader|account manager)\b|\bno experience (needed|required)\b", 0.25,
+     "investment_scam", "mentor or no-experience-needed money pitch"),
+    (r"\b(migration|swap|upgrade|migrate|transition) (to v\d|is mandatory|is required|is compulsory)\b|"
+     r"\b(mandatory|compulsory) (migration|swap|upgrade|claim)\b", 0.35, "drainer",
+     "says a token migration or swap is mandatory"),
+    (r"\b(profits?|returns?|roi|income)\b.{0,15}\bguaranteed\b|\b\d+(\.\d+)?\s?% (daily|weekly|monthly|"
+     r"per (day|week|month)|a day|every day)\b", 0.40, "investment_scam", "promises a fixed percentage return"),
+    (r"\bfree \$?\d[\d,.]*\s?k?\s?\$?\w+\b", 0.30, "fake_airdrop", "offers free tokens"),
+    (r"\bwallets? (that|who) (connect|claim|register|join)\b|\bwho (connect|link)s? (their )?wallets?\b", 0.30,
+     "drainer", "rewards people for connecting their wallet"),
+    (r"\b(dapp|site|portal|link|website|platform|page)\b.{0,10}\bto (resolve|fix|rectify|sync|validate|claim|"
+     r"unlock|recover|restore)\b", 0.35, "drainer", "sends people to a site to 'fix' or 'claim'"),
+    # ---- Impersonation wording -----------------------------------------------------------------
+    (r"\b(official|urgent|important) (announcement|notice|update|message)\b.{0,60}\b(claim|connect|verify|"
+     r"validate|migrate|click|link|dm)\b", 0.35, "impersonation", "fake 'official announcement' with an action"),
+    (r"\b(admin|team|mod(erator)?s?) (here|speaking)\b|\bmessage from the (team|admins?|devs?)\b", 0.35,
+     "impersonation", "speaks as the team or admins"),
 ]
 
 URL_RE = re.compile(r"(?i)\b((?:https?://|www\.)[^\s<>\"']+|(?:[a-z0-9-]+\.)+(?:[a-z]{2,24})/[^\s<>\"']*)")
@@ -127,8 +264,9 @@ BRANDS: dict[str, set[str]] = {
     "telegram": {"telegram.org", "t.me"},
 }
 
-PROTECTIVE_RE = re.compile(r"\b(never|don'?t|do not|beware|watch out|be careful|stay safe|warning|report)\b"
-                           r".{0,40}\b(share|send|give|click|trust|dm|scam|fake|phrase|key)\b|\bis a scam\b|"
+PROTECTIVE_RE = re.compile(r"\b(never|don'?t|do not|beware|watch out|be careful|stay safe|warning|report|ignore)\b"
+                           r".{0,40}\b(share|send|give|click|trust|dm|scam\w*|fake|phrase|key|them|it)\b|"
+                           r"\b(is|are|it'?s) (a |all )?scams?\b|\bscammers? (will|would|may|might|always|often)\b|"
                            r"\badmins? (will )?never\b", re.I)
 
 IMPERSONATION_WORDS = re.compile(r"\b(admin|administrator|support|moderator|mod|official|team|helpdesk|"
@@ -162,6 +300,7 @@ class Verdict:
     category: str
     reasons: list[str] = field(default_factory=list)
     urls: list[str] = field(default_factory=list)
+    certain: bool = False   # at least one near-certain signal: eligible for ban on sight
 
     @property
     def label(self) -> str:
@@ -169,7 +308,7 @@ class Verdict:
 
     def as_dict(self) -> dict:
         return {"score": round(self.score, 2), "category": self.category, "label": self.label,
-                "reasons": self.reasons, "urls": self.urls}
+                "reasons": self.reasons, "urls": self.urls, "certain": self.certain}
 
 
 CATEGORY_LABELS = {
@@ -359,7 +498,13 @@ class Detector:
         if PROTECTIVE_RE.search(norm) and not urls and not TG_HANDLE_RE.search(norm):
             hits = [(w * 0.3, c, r) for w, c, r in hits]
 
-        score = min(1.0, sum(w for w, _, _ in hits))
+        # Several independent scam signals in one message is itself a strong sign.
+        strong = {r for w, c, r in hits if c and w >= 0.3}
+        flagged = {r for w, c, r in hits if c and w >= 0.2}
+        if len(strong) >= 2 or len(flagged) >= 3:
+            hits.append((0.15, "", "several scam signals appear together"))
+
+        score = round(min(1.0, sum(w for w, _, _ in hits)), 3)
         by_cat: dict[str, float] = {}
         for w, c, _ in hits:
             if c:
@@ -369,4 +514,5 @@ class Detector:
         for _, _, r in sorted(hits, key=lambda h: -h[0]):
             if r not in reasons:
                 reasons.append(r)
-        return Verdict(score, category, reasons, urls)
+        certain = any(w >= 0.9 for w, _, _ in hits)
+        return Verdict(score, category, reasons, urls, certain)
