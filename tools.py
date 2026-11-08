@@ -159,6 +159,7 @@ def build(mod: Moderator) -> dict[str, Any]:
             return json.dumps({"error": str(exc)})
         ok = result != "failed"
         link = ""
+        dm_sent = False
         if ok:
             mod.store.set_incident(inc["id"], released=1)
             if result == "unbanned":
@@ -166,10 +167,16 @@ def build(mod: Moderator) -> dict[str, Any]:
                     link = mod.run_on_bot_loop(lambda bot: mod.rejoin_link(bot, inc["chat_id"]))
                 except Exception:
                     link = ""
+                if link:
+                    try:
+                        dm_sent = bool(mod.run_on_bot_loop(lambda bot: mod.send_rejoin(bot, inc, link)))
+                    except Exception:
+                        dm_sent = False
         return json.dumps({"ok": ok, "result": result, "released": inc["user_name"], "group": inc["chat_title"],
-                           "rejoin_link": link or None,
-                           "note": "Unbanned. Telegram does not let bots add people back, so send them the "
-                                   "rejoin link." if result == "unbanned" else ""})
+                           "rejoin_link": link or None, "rejoin_link_sent_to_them": dm_sent,
+                           "note": ("Unbanned and the rejoin link was sent to them in DM." if dm_sent else
+                                    "Unbanned. They never opened a chat with the bot, so forward them the "
+                                    "rejoin link.") if result == "unbanned" else ""})
 
     return {"ratcatcher_check": (CHECK, check), "ratcatcher_report": (REPORT, report),
             "ratcatcher_blocklist": (BLOCKLIST, blocklist), "ratcatcher_release": (RELEASE, release)}

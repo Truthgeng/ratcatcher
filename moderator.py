@@ -282,6 +282,20 @@ class Moderator:
             logger.info("ratcatcher: could not create invite link (needs 'Invite users' admin right): %s", exc)
             return ""
 
+    async def send_rejoin(self, bot: Any, incident: dict, link: str) -> bool:
+        """DM the released person their rejoin link. Telegram only allows this if they have
+        started a chat with the bot before, so a False here is normal for most accounts."""
+        title = incident.get("chat_title") or "the group"
+        try:
+            await bot.send_message(int(incident["user_id"]),
+                                   f"🐀 An admin of {title} reviewed your removal and let you back in. "
+                                   f"Tap to rejoin (works once, for 24 hours): {link}",
+                                   disable_web_page_preview=True)
+            return True
+        except Exception as exc:
+            logger.info("ratcatcher: could not DM rejoin link (they never started the bot): %s", exc)
+            return False
+
     async def _mute(self, bot: Any, chat_id: Any, user_id: Any, minutes: int) -> bool:
         from telegram import ChatPermissions
         try:
@@ -529,8 +543,14 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
                         "nothing_to_undo": "✅ Released"}.get(result)
                 if result == "unbanned":
                     link = await mod.rejoin_link(context.bot, incident["chat_id"])
-                    note += (f"\nSend them this one-time link to rejoin: {link}" if link else
-                             "\nAdd them back from the group, or send them the group link.")
+                    sent = link and await mod.send_rejoin(context.bot, incident, link)
+                    if sent:
+                        note += "\nThe rejoin link was sent to them in DM."
+                    elif link:
+                        note += (f"\nThey have never opened a chat with the bot, so it cannot DM them. "
+                                 f"Forward them this one-time link: {link}")
+                    else:
+                        note += "\nAdd them back from the group, or send them the group link."
                 buttons = [["Ban", "ban"]]
             elif verb == "ban":
                 ok = await mod._ban(context.bot, incident["chat_id"], incident["user_id"])
@@ -544,7 +564,8 @@ def make_factory(mod: Moderator) -> Callable[[Any, Any], None]:
                 await q.answer("Unknown action")
                 raise ApplicationHandlerStop
             if note:
-                await _mark_report(q, f"{note} by {who}", inc_id, buttons)
+                head, _, rest = note.partition("\n")
+                await _mark_report(q, f"{head} by {who}" + (f"\n{rest}" if rest else ""), inc_id, buttons)
             raise ApplicationHandlerStop
 
         groups = filters.ChatType.GROUPS

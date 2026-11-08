@@ -428,8 +428,6 @@ def test_release_button_unbans_a_banned_account():
     bot.unban_chat_member.assert_awaited_once()
     bot.restrict_chat_member.assert_not_awaited()
     bot.create_chat_invite_link.assert_awaited_once()
-    call = bot.edit_message_text.await_args
-    assert "t.me/+abc123" in str(call.args) + str(call.kwargs)
     assert mod.store.get_incident(inc)["released"] == 1
 
 
@@ -459,3 +457,26 @@ def test_basic_group_does_not_try_to_mute():
     bot.delete_message.assert_awaited()
     bot.restrict_chat_member.assert_not_awaited()
     assert "mute_needs_supergroup" in mod.store.recent(1)[0]["action"]
+
+
+def test_release_dms_the_link_when_possible():
+    mod, bot, inc, on_button = _button_setup("kicked")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}"), SimpleNamespace(bot=bot)))
+    dm = [c for c in bot.send_message.await_args_list if c.args and c.args[0] == 66]
+    assert dm and "t.me/+abc123" in dm[0].args[1]
+    call = bot.edit_message_text.await_args
+    assert "sent to them in DM" in str(call.args) + str(call.kwargs)
+
+
+def test_release_falls_back_when_dm_is_blocked():
+    mod, bot, inc, on_button = _button_setup("kicked")
+    async def _send(chat_id, *a, **k):
+        if chat_id == 66:
+            raise RuntimeError("Forbidden: bot can't initiate conversation with a user")
+        return MagicMock()
+    bot.send_message = AsyncMock(side_effect=_send)
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_button(_button_update(bot, f"rcatch:release:{inc}"), SimpleNamespace(bot=bot)))
+    call = bot.edit_message_text.await_args
+    assert "Forward them this one-time link" in str(call.args) + str(call.kwargs)
