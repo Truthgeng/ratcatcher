@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <clipPath id="disc"><circle cx="256" cy="256" r="256"/></clipPath>
+  </defs>
+  <g clip-path="url(#disc)">
+    <rect width="512" height="512" fill="#14110F"/>
+
+    <g transform="translate(256 262) rotate(-14) scale(1.05) translate(-256 -262)">
+      <!-- wooden base, seen from above -->
+      <rect x="86" y="168" width="340" height="190" rx="18" fill="#D2923F"/>
+      <rect x="86" y="168" width="340" height="190" rx="18" fill="none" stroke="#8E5A22" stroke-width="6"/>
+      <path d="M106 204 H300 M124 248 H406 M106 292 H250 M156 330 H394" stroke="#B07431" stroke-width="5"
+            stroke-linecap="round" fill="none"/>
+
+      <!-- tail: long, tapered, pink, hanging off the board -->
+      <path d="M156 256 C 120 246, 96 288, 66 296 C 40 303, 22 290, 26 268 C 28 286, 44 294, 64 288
+               C 92 280, 116 238, 158 272 Z" fill="#E39A93"/>
+
+      <!-- back legs -->
+      <ellipse cx="166" cy="216" rx="17" ry="10" fill="#4A4642" transform="rotate(-35 166 216)"/>
+      <ellipse cx="166" cy="312" rx="17" ry="10" fill="#4A4642" transform="rotate(35 166 312)"/>
+      <!-- front paws splayed under the bar -->
+      <path d="M296 222 c 6 -16, 18 -26, 30 -24 c -4 10, -14 22, -26 28 Z" fill="#4A4642"/>
+      <path d="M296 306 c 6 16, 18 26, 30 24 c -4 -10, -14 -22, -26 -28 Z" fill="#4A4642"/>
+
+      <!-- body -->
+      <path d="M150 264 C 150 214, 206 206, 250 210 C 286 213, 308 236, 308 264 C 308 292, 286 315, 250 318
+               C 206 322, 150 314, 150 264 Z" fill="#6C6762"/>
+      <path d="M176 252 C 190 230, 230 226, 262 232" stroke="#837D77" stroke-width="10" stroke-linecap="round"
+            fill="none"/>
+
+      <!-- ears -->
+      <circle cx="320" cy="228" r="17" fill="#6C6762"/>
+      <circle cx="321" cy="228" r="9" fill="#E39A93"/>
+      <circle cx="320" cy="300" r="17" fill="#6C6762"/>
+      <circle cx="321" cy="300" r="9" fill="#E39A93"/>
+
+      <!-- head: long pointed snout -->
+      <path d="M298 240 C 334 232, 384 250, 418 264 C 384 278, 334 296, 298 288 C 286 278, 286 250, 298 240 Z"
+            fill="#6C6762"/>
+      <circle cx="420" cy="264" r="8" fill="#E5484D"/>
+      <path d="M404 254 L432 242 M406 260 L436 256 M404 274 L432 286 M406 268 L436 272" stroke="#B9B3AB"
+            stroke-width="3" stroke-linecap="round"/>
+      <!-- X eyes -->
+      <path d="M346 246 l11 11 M357 246 l-11 11 M346 271 l11 11 M357 271 l-11 11" stroke="#F4EFE8"
+            stroke-width="5" stroke-linecap="round"/>
+
+      <!-- spring coils at the hinge -->
+      <circle cx="252" cy="190" r="13" fill="none" stroke="#8E98A3" stroke-width="7"/>
+      <circle cx="252" cy="338" r="13" fill="none" stroke="#8E98A3" stroke-width="7"/>
+      <!-- snapped bar, slammed across the neck -->
+      <path d="M252 177 V 158 H 314 V 370 H 252 V 351" fill="none" stroke="#C9D1D9" stroke-width="14"
+            stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M314 158 V 370" stroke="#F2F5F7" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>
