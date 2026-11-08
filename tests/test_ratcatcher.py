@@ -32,6 +32,10 @@ SCAMS = [
     "Wallet not syncing? Rectify your wallet at https://dapp-rectify.online/sync",
     "Type your 12 word recovery phrase in the form to restore access",
     "Official giveaway is open, first 100 users get 500 USDT, claim here bit.ly/xyz123",
+    "Having issues with your wallet? DM me, I'm from support",
+    "Hello, I am from the support team. Anyone with pending withdrawals inbox me",
+    "Is your transaction stuck? Message me, I can help you fix it",
+    "We are the official team, contact us for your missing tokens",
 ]
 
 CLEAN = [
@@ -42,6 +46,11 @@ CLEAN = [
     "Is the airdrop snapshot done or still coming?",
     "Price is pumping today, nice",
     "Admins will never DM you first, report anyone who does",
+    "dm me if you want to collab on the thread",
+    "having issues with my wallet, anyone know why?",
+    "I'm from Lagos, gm fam",
+    "the team said the update is coming soon",
+    "If anyone says I'm from support and asks you to DM them, it is a scam",
 ]
 
 
@@ -105,14 +114,14 @@ def test_ai_second_look_blocks_borderline():
         parsed={"is_scam": True, "confidence": 0.9, "category": "fake_support", "reason": "DM bait"}))
     mod = _mod()
     mod.llm = llm
-    v, decision, note = asyncio.run(mod.judge("support team here, inbox me for help", Sender(4, "a", "a"),
+    v, decision, note = asyncio.run(mod.judge("dm me for help", Sender(4, "a", "a"),
                                               ADMINS, [], False))
     assert decision == "block" and "AI" in note
 
 
 def test_borderline_without_ai_is_flagged_not_removed():
     mod = _mod(ai_review=False)
-    _, decision, _ = asyncio.run(mod.judge("support team here, inbox me for help", Sender(4, "a", "a"),
+    _, decision, _ = asyncio.run(mod.judge("dm me for help", Sender(4, "a", "a"),
                                            ADMINS, [], False))
     assert decision == "flag"
 

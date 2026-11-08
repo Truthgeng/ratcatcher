@@ -68,6 +68,17 @@ PHRASE_RULES: list[tuple[str, float, str, str]] = [
     (r"\b(support|help ?desk|customer care|technical team)\b.{0,30}\b(dm|inbox|contact|bot|link|ticket)\b",
      0.35, "fake_support", "pretends to be a support desk"),
     (r"\bopen a (support )?ticket\b", 0.30, "fake_support", "asks people to open a 'ticket' outside the group"),
+    (r"\b(i'?m|i am|we'?re|we are|this is)\s+(from\s+)?(the\s+|an?\s+|your\s+)?(official\s+)?(support|admin|"
+     r"moderator|mod|help ?desk|customer care|team|dev team|technical team)\b", 0.40, "fake_support",
+     "claims to be support or staff without being an admin"),
+    (r"\b(issues?|problems?|trouble|stuck|errors?|difficult(y|ies)|delayed|pending|missing)\b.{0,30}"
+     r"\b(wallet|transaction|withdrawals?|deposits?|funds|tokens|account|claim|bridge|swap)\b|"
+     r"\b(wallet|transaction|withdrawal|deposit|funds|tokens|claim|bridge|swap)s?\b.{0,12}"
+     r"\b(stuck|pending|delayed|missing|failed|not (showing|working|syncing))\b", 0.20,
+     "fake_support", "fishes for people with wallet or transaction problems"),
+    (r"\b(dm|inbox|pm|message|text|contact|reach out to)\b.{0,15}\b(me|us)\b.{0,25}\b(help|fix|resolve|"
+     r"assist|solution|sort)\b|\bi can help\b.{0,25}\b(dm|inbox|pm)\b", 0.25, "fake_support",
+     "offers private help in DMs"),
     # Investment bait
     (r"\b(doubl(e|es|ing)|tripl(e|es|ing)|2x|3x|10x) (your|ur)\b|\bsend\b.{0,80}\b(get|receive)\b.{0,20}\bback\b", 0.50, "investment_scam",
      "promises to multiply money sent"),
