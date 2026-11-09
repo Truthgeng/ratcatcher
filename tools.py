@@ -132,8 +132,13 @@ def build(mod: Moderator) -> dict[str, Any]:
             if not value.strip():
                 return json.dumps({"error": "Give the domain or phrase."})
             if action == "add":
-                ok = mod.store.block(kind, value, str(args.get("note") or ""))
-                return json.dumps({"ok": ok, "added": {"kind": kind, "value": value.strip().lower()}})
+                clean, why = mod.store.clean_entry(kind, value)
+                if not clean:
+                    return json.dumps({"ok": False, "refused": why})
+                ok = mod.store.block(kind, clean, str(args.get("note") or ""))
+                return json.dumps({"ok": ok, "added": {"kind": kind, "value": clean},
+                                   "note": "Messages containing it are removed and the sender gets a strike. "
+                                           "Blocklist hits never ban on sight."})
             if action == "remove":
                 return json.dumps({"ok": mod.store.unblock(kind, value), "removed": value.strip().lower()})
             return json.dumps({"error": f"unknown action {action}"})

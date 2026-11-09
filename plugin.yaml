@@ -1,5 +1,5 @@
 name: ratcatcher
-version: 0.3.5
+version: 0.4.0
 manifest_version: 2
 api_version: 1
 description: >-
@@ -17,6 +17,8 @@ provides_tools:
   - ratcatcher_report
   - ratcatcher_blocklist
   - ratcatcher_release
+provides_hooks:
+  - pre_tool_call
 config_schema:
   mode:
     type: str

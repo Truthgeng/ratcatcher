@@ -79,10 +79,16 @@ plugins:
 |---|---|
 | `ratcatcher_check` | Score any pasted message or link (read-only) |
 | `ratcatcher_report` | Totals and the latest catches (read-only) |
-| `ratcatcher_blocklist` | List, add or remove blocked domains and phrases |
-| `ratcatcher_release` | Undo a false alarm: unmute, unban, clear strikes |
+| `ratcatcher_blocklist` | List, add or remove blocked domains and phrases (adds and removes need your approval) |
+| `ratcatcher_release` | Undo a false alarm: unmute, unban, clear strikes (needs your approval) |
 
 Slash command: `/ratcatcher` for status, `/ratcatcher check <text>` to test a message.
+
+### Human approval
+
+Blocklist adds, blocklist removals and releases go through Hermes's own approval prompt (a `pre_tool_call` hook returns `{"action": "approve"}`), so a person confirms each one. A scam message in a group cannot talk the model into blocklisting a word that bans members, or into letting a banned scammer back in. Reading the blocklist, reports and message checks need no approval. The Release and Ban buttons on admin reports only work for group admins.
+
+Blocklist entries also have limits: phrases need at least two words and ten characters and cannot be only everyday words, and common sites (t.me, x.com, github.com, explorers and so on) cannot be blocked. A blocklist hit removes the message and gives the sender a strike, but never bans on sight.
 
 ## How it decides
 
@@ -96,7 +102,7 @@ At or above the remove score, Ratcatcher acts. Between the second-look score and
 - **Network**: no calls to any third-party service. Link checks are local; links are never opened.
 - **LLM calls**: only for borderline messages and only when `ai_review` is on, through Hermes's `ctx.llm` with your current provider. The message text is sent to that model.
 - **Data stored**: catches (sender name and id, up to 600 characters of the removed message, reasons, action), strike counts, join times and message counts per member, and your blocklist, in the plugin's own SQLite file under `HERMES_HOME/plugin-data/ratcatcher/`. Nothing leaves your machine.
-- **Hermes surfaces**: `register_telegram_handler` (in-process only), `register_tool`, `register_command`, `register_skill`, `ctx.get_config`, `ctx.llm`, `plugins.plugin_storage`. No core overrides, no shell commands, no background processes beyond the gateway's own Telegram loop, no stored credentials, no telemetry.
+- **Hermes surfaces**: `register_telegram_handler` (in-process only), `register_tool`, `register_hook` (`pre_tool_call`, asks for approval only), `register_command`, `register_skill`, `ctx.get_config`, `ctx.llm`, `plugins.plugin_storage`. No core overrides, no shell commands, no background processes beyond the gateway's own Telegram loop, no stored credentials, no telemetry.
 
 ## Develop
 

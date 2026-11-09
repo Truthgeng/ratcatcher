@@ -617,5 +617,7 @@ class Detector:
         for _, _, r in sorted(hits, key=lambda h: -h[0]):
             if r not in reasons:
                 reasons.append(r)
-        certain = any(w >= 0.9 for w, _, _ in hits)
+        # Blocklist entries are added by people (or the agent), not written and tested like the rules,
+        # so a blocklist hit removes the message and strikes the sender but never bans on sight.
+        certain = any(w >= 0.9 and c != "blocklisted" for w, c, _ in hits)
         return Verdict(score, category, reasons, urls, certain)

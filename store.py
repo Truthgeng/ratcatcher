@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -41,6 +42,25 @@ CREATE TABLE IF NOT EXISTS blocklist (
 """
 
 MAX_TEXT = 600
+MIN_PHRASE_CHARS = 10
+MIN_PHRASE_WORDS = 2
+
+# Sites real members link to every day. Blocking one would remove normal chat across the group.
+PROTECTED_DOMAINS = {
+    "t.me", "telegram.org", "telegram.me", "x.com", "twitter.com", "youtube.com", "youtu.be", "google.com",
+    "github.com", "medium.com", "discord.com", "discord.gg", "reddit.com", "instagram.com", "facebook.com",
+    "linkedin.com", "tiktok.com", "wikipedia.org", "coingecko.com", "coinmarketcap.com", "dexscreener.com",
+    "etherscan.io", "solscan.io", "bscscan.com", "basescan.org", "arbiscan.io", "notion.so", "gitbook.io",
+    "docs.google.com", "mirror.xyz", "substack.com", "linktr.ee",
+}
+
+COMMON_WORDS = {
+    "a", "an", "the", "and", "or", "to", "of", "in", "on", "for", "is", "are", "was", "be", "it", "this", "that",
+    "i", "you", "we", "they", "me", "my", "your", "our", "gm", "gn", "hi", "hello", "hey", "ser", "fam", "bro",
+    "please", "pls", "thanks", "thank", "yes", "no", "ok", "okay", "lol", "wen", "when", "what", "how", "who",
+    "airdrop", "claim", "wallet", "token", "tokens", "price", "dm", "admin", "support", "help", "link", "join",
+    "team", "project", "community", "group", "now", "here", "today", "new", "good", "great", "nice", "send",
+}
 
 
 class Store:
@@ -170,13 +190,37 @@ class Store:
 
     # -- blocklist -----------------------------------------------------------
 
-    def block(self, kind: str, value: str, note: str = "") -> bool:
-        value = value.strip().lower()
-        if kind not in ("domain", "phrase") or not value:
-            return False
+    @staticmethod
+    def clean_entry(kind: str, value: str) -> tuple[str, str]:
+        """Normalise a blocklist entry. Returns (value, "") or ("", reason it was refused).
+
+        One broad entry must not be able to sweep a whole group, so short or generic phrases and
+        domains every group links to are refused.
+        """
+        value = (value or "").strip().lower()
+        if kind not in ("domain", "phrase"):
+            return "", "kind must be 'domain' or 'phrase'"
         if kind == "domain":
-            value = value.replace("https://", "").replace("http://", "").split("/")[0]
+            value = value.replace("https://", "").replace("http://", "").split("/")[0].split("?")[0]
             value = value[4:] if value.startswith("www.") else value
+            if "." not in value or len(value) < 5 or not re.fullmatch(r"[a-z0-9.-]+", value):
+                return "", "that does not look like a single domain"
+            reg = ".".join(value.split(".")[-2:])
+            if value in PROTECTED_DOMAINS or reg in PROTECTED_DOMAINS:
+                return "", f"{reg} is a common site members link to all the time, so it cannot be blocklisted"
+            return value, ""
+        words = re.findall(r"[^\W_]+", value)
+        if len(value) < MIN_PHRASE_CHARS or len(words) < MIN_PHRASE_WORDS:
+            return "", (f"phrases need at least {MIN_PHRASE_WORDS} words and {MIN_PHRASE_CHARS} characters, "
+                        "so a short or common word cannot remove normal chat")
+        if all(w in COMMON_WORDS for w in words):
+            return "", "that phrase is made only of everyday words and would catch normal chat"
+        return value, ""
+
+    def block(self, kind: str, value: str, note: str = "") -> bool:
+        value, why = self.clean_entry(kind, value)
+        if not value:
+            return False
         with self._lock:
             self._conn.execute("INSERT OR REPLACE INTO blocklist (kind, value, note, ts) VALUES (?,?,?,?)",
                                (kind, value, note, time.time()))

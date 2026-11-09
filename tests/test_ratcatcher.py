@@ -508,3 +508,74 @@ def test_unrelated_channel_posting_scams_is_removed():
     with pytest.raises(ApplicationHandlerStop):
         asyncio.run(on_message(_channel_update(bot, False, -100555), SimpleNamespace(bot=bot)))
     bot.delete_message.assert_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: human approval for blocklist changes and releases
+# ---------------------------------------------------------------------------
+
+from ratcatcher import approval_gate  # noqa: E402
+
+
+def test_blocklist_add_needs_human_approval():
+    guard = approval_gate(_mod())
+    d = guard(tool_name="ratcatcher_blocklist", args={"action": "add", "kind": "domain", "value": "drain-claim.xyz"})
+    assert d["action"] == "approve" and "drain-claim.xyz" in d["message"]
+
+
+def test_blocklist_remove_and_release_need_approval():
+    mod = _mod()
+    inc = mod.store.add_incident(chat_id=-1, chat_title="G", message_id=1, user_id=5, user_name="Mike", text="t",
+                                 score=1, category="drainer", reasons=[], action="banned")
+    guard = approval_gate(mod)
+    assert guard(tool_name="ratcatcher_blocklist",
+                 args={"action": "remove", "kind": "domain", "value": "x.xyz"})["action"] == "approve"
+    d = guard(tool_name="ratcatcher_release", args={"incident_id": inc})
+    assert d["action"] == "approve" and "Mike" in d["message"]
+
+
+def test_reads_are_not_gated():
+    guard = approval_gate(_mod())
+    assert guard(tool_name="ratcatcher_blocklist", args={"action": "list"}) is None
+    assert guard(tool_name="ratcatcher_report", args={}) is None
+    assert guard(tool_name="ratcatcher_check", args={"text": "x"}) is None
+    assert guard(tool_name="terminal", args={}) is None
+
+
+def test_gate_fails_closed():
+    mod = _mod()
+    mod.store.get_incident = MagicMock(side_effect=RuntimeError("db gone"))
+    d = approval_gate(mod)(tool_name="ratcatcher_release", args={"incident_id": 3})
+    assert d["action"] == "approve"
+
+
+@pytest.mark.parametrize("kind,value", [
+    ("phrase", "gm"), ("phrase", "airdrop"), ("phrase", "claim now"), ("phrase", "dm me"),
+    ("phrase", "the airdrop is now"), ("domain", "t.me"), ("domain", "https://x.com/someone"),
+    ("domain", "github.com"), ("domain", "notadomain"),
+])
+def test_broad_blocklist_entries_are_refused(kind, value):
+    t = rc_tools.build(_mod())
+    out = json.loads(t["ratcatcher_blocklist"][1]({"action": "add", "kind": kind, "value": value}))
+    assert out["ok"] is False and out["refused"], (value, out)
+
+
+def test_specific_entries_are_accepted():
+    t = rc_tools.build(_mod())
+    for kind, value in [("domain", "claim-sign-drop.xyz"), ("phrase", "contact mrs linda for recovery")]:
+        out = json.loads(t["ratcatcher_blocklist"][1]({"action": "add", "kind": kind, "value": value}))
+        assert out["ok"], out
+
+
+def test_blocklist_hit_removes_but_never_bans_on_sight():
+    mod = _mod(warning_ttl_seconds=0)
+    mod.store.block("phrase", "contact mrs linda for recovery")
+    bot, on_message = _wire(mod)
+    upd = _update(bot, "pls contact mrs linda for recovery of funds")
+    with pytest.raises(ApplicationHandlerStop):
+        asyncio.run(on_message(upd, SimpleNamespace(bot=bot)))
+    bot.delete_message.assert_awaited()
+    bot.ban_chat_member.assert_not_awaited()
+    v = Detector(blocked_phrases=["contact mrs linda for recovery"]).check(
+        "contact mrs linda for recovery", Sender(9, "x", "x"), [])
+    assert v.category == "blocklisted" and not v.certain

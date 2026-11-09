@@ -38,6 +38,55 @@ def _status_text(mod: Moderator) -> str:
             f"Blocklist: {len(mod.store.blocklist())} entries")
 
 
+GATED_TOOLS = ("ratcatcher_blocklist", "ratcatcher_release")
+
+
+def approval_gate(mod: Moderator):
+    """pre_tool_call hook: blocklist changes and releases need a human to confirm.
+
+    A blocklist entry decides who gets removed from the group, and a release lets someone back in.
+    A scam message in a group could try to talk the model into either one, so Hermes's own approval
+    prompt has to be answered by a person before these run. Reading the blocklist stays free.
+    """
+    def guard(tool_name: str = "", args: dict | None = None, **kw: object):
+        if tool_name not in GATED_TOOLS:
+            return None
+        try:
+            return _decide(tool_name, args)
+        except Exception:  # never let an error here skip the approval: fail closed
+            logger.warning("ratcatcher: approval gate error, asking for approval anyway", exc_info=True)
+            return {"action": "approve", "message": f"Ratcatcher: allow {tool_name} with {args!r}?"}
+
+    def _decide(tool_name: str, args: dict | None):
+        args = args if isinstance(args, dict) else {}
+        if tool_name == "ratcatcher_blocklist":
+            action = str(args.get("action") or "list")
+            if action == "list":
+                return None
+            kind = str(args.get("kind") or "domain")
+            value = str(args.get("value") or "").strip()
+            if action == "add":
+                clean, why = mod.store.clean_entry(kind, value)
+                if not clean:
+                    return None  # the tool itself refuses it; nothing would change
+                msg = (f"Ratcatcher: add the {kind} '{clean}' to the blocklist? Any member who posts it will "
+                       f"have the message removed and get a strike (muted, banned after repeat strikes).")
+            else:
+                msg = f"Ratcatcher: remove the {kind} '{value.lower()}' from the blocklist?"
+            return {"action": "approve", "message": msg,
+                    "rule_key": f"ratcatcher:blocklist:{action}:{kind}:{value.lower()}"}
+        try:
+            inc = mod.store.get_incident(int(args.get("incident_id")))
+        except (TypeError, ValueError):
+            inc = None
+        who = f"{inc['user_name']} in {inc['chat_title'] or inc['chat_id']}" if inc else "this catch"
+        return {"action": "approve",
+                "message": f"Ratcatcher: release catch #{args.get('incident_id')} ({who})? "
+                           "This unbans or unmutes them and clears their strikes.",
+                "rule_key": f"ratcatcher:release:{args.get('incident_id')}"}
+    return guard
+
+
 def register(ctx) -> None:
     store = _open_store()
     llm = None
@@ -63,6 +112,7 @@ def register(ctx) -> None:
     ctx.register_command("ratcatcher", _command, description="Ratcatcher status, or /ratcatcher check <text>",
                          args_hint="[check <text>]")
 
+    ctx.register_hook("pre_tool_call", approval_gate(mod))
     ctx.register_telegram_handler(make_factory(mod))
 
     skill = _HERE / "skills" / "ratcatcher" / "SKILL.md"
